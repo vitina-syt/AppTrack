@@ -1,0 +1,30 @@
+# AppTrack Backend - Python 3.12+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+pywin32==311
+psutil==6.1.1
+aiofiles==24.1.0
+mss==9.0.2
+pynput==1.7.7
+Pillow==11.2.1
+
+# ── CreoScribe additions ──────────────────────────────────────────────────────
+# HTTP client (avatar export + Whisper API fallback)
+httpx==0.28.1
+
+# Anthropic SDK (Claude narration generation)
+anthropic>=0.40.0
+
+# Voice capture — microphone input
+# pyaudio==0.2.14          # uncomment after: pip install pyaudio
+#                          # Windows: pip install pipwin && pipwin install pyaudio
+#                          # or download wheel from https://www.lfd.uci.edu/~gohlke/pythonlibs/
+
+# Local Whisper transcription (large download ~140 MB for 'base' model)
+# openai-whisper==20231117 # uncomment to enable local transcription
+# numpy>=1.24              # required by whisper
+
+# Windows UI Automation (for full UIA event capture; falls back to title-polling)
+# comtypes==1.4.8          # uncomment to enable full UIA event capture

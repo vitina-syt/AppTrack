@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# 环境变量（含 API Key，绝不提交）
+backend/.env
+
+# 数据库 & 截图
+backend/data/
+backend/data/screenshots/
+backend/data/scribe_screenshots/
+backend/data/autocad_screenshots/
+
+# 前端
+frontend/node_modules/
+frontend/dist/

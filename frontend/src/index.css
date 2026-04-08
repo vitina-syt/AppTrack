@@ -1,0 +1,78 @@
+* { box-sizing: border-box; }
+
+/* ── Dark theme (Tokyo Night) ───────────────────────────────────────── */
+:root {
+  --bg:        #1a1b26;
+  --bg-deep:   #0d0d14;
+  --surface:   #24283b;
+  --surface2:  #2a2e42;
+  --border:    #3b4261;
+  --border-s:  #565f89;
+  --text:      #c0caf5;
+  --text-m:    #a9b1d6;
+  --text-s:    #565f89;
+  --accent:    #7aa2f7;
+  --accent-bg: rgba(122,162,247,0.12);
+  --accent-fg: #1a1b26;
+  --danger:    #f7768e;
+  --success:   #9ece6a;
+  --warning:   #e0af68;
+  --sb-bg:     #16161e;
+  --sb-text:   #a9b1d6;
+  --sb-text-a: #c0caf5;
+  --sb-active: rgba(122,162,247,0.12);
+  --sb-border: #3b4261;
+  --sb-brand:  #7aa2f7;
+  --scrollbar-track: #1a1b26;
+  --scrollbar-thumb: #3b4261;
+  --scrollbar-thumb-hover: #565f89;
+  color-scheme: dark;
+}
+
+/* ── Light theme (Siemens Energy) ───────────────────────────────────── */
+[data-theme="light"] {
+  --bg:        #f4f5f7;
+  --bg-deep:   #e8eaef;
+  --surface:   #ffffff;
+  --surface2:  #eef1f6;
+  --border:    #dde0e8;
+  --border-s:  #c8cdd8;
+  --text:      #1b1534;
+  --text-m:    #4a5568;
+  --text-s:    #8a94a6;
+  --accent:    #009999;
+  --accent-bg: rgba(0,153,153,0.08);
+  --accent-fg: #ffffff;
+  --danger:    #e53935;
+  --success:   #2e7d32;
+  --warning:   #f57c00;
+  --sb-bg:     #1b1534;
+  --sb-text:   rgba(255,255,255,0.65);
+  --sb-text-a: #ffffff;
+  --sb-active: rgba(255,255,255,0.12);
+  --sb-border: rgba(255,255,255,0.12);
+  --sb-brand:  #00d2b4;
+  --scrollbar-track: #e8eaef;
+  --scrollbar-thumb: #c8cdd8;
+  --scrollbar-thumb-hover: #8a94a6;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.2s, color 0.2s;
+}
+html, body, #root { height: 100%; overflow: hidden; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }

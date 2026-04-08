@@ -1,0 +1,133 @@
+import { useState } from 'react'
+import { useT } from '../hooks/useT'
+import { useSettingsStore } from '../store/settingsStore'
+import { LANGUAGE_OPTIONS } from '../i18n/locale'
+
+export default function SettingsPage() {
+  const t = useT()
+  const {
+    language, setLanguage,
+    theme, setTheme,
+    pollInterval, setPollInterval,
+    ignoredApps, setIgnoredApps,
+  } = useSettingsStore()
+
+  const [interval, setInterval_] = useState(String(pollInterval))
+  const [ignored, setIgnored]    = useState(ignoredApps.join('\n'))
+  const [saved, setSaved]        = useState(false)
+
+  function save() {
+    const n = parseInt(interval, 10)
+    if (n >= 1 && n <= 60) setPollInterval(n)
+    setIgnoredApps(ignored.split('\n').map(s => s.trim()).filter(Boolean))
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1800)
+  }
+
+  return (
+    <div style={s.page}>
+      <h2 style={s.title}>{t.settings_title}</h2>
+
+      <div style={s.card}>
+        {/* Theme */}
+        <Section label={t.settings_theme} desc={t.settings_theme_desc}>
+          <div style={s.row}>
+            {['dark','light'].map(v => (
+              <button key={v}
+                style={{ ...s.chip, ...(theme === v ? s.chipActive : {}) }}
+                onClick={() => setTheme(v)}>
+                {v === 'dark' ? t.theme_dark : t.theme_light}
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        <Divider />
+
+        {/* Language */}
+        <Section label={t.settings_language} desc={t.settings_language_desc}>
+          <div style={s.row}>
+            {LANGUAGE_OPTIONS.map(opt => (
+              <button key={opt.value}
+                style={{ ...s.chip, ...(language === opt.value ? s.chipActive : {}) }}
+                onClick={() => setLanguage(opt.value)}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+
+        <Divider />
+
+        {/* Poll interval */}
+        <Section label={t.settings_poll_label} desc={t.settings_poll_desc}>
+          <div style={s.row}>
+            <input
+              type="number" min={1} max={60} value={interval}
+              onChange={e => setInterval_(e.target.value)}
+              style={s.numInput}
+            />
+            <span style={s.unit}>s</span>
+          </div>
+        </Section>
+
+        <Divider />
+
+        {/* Ignored apps */}
+        <Section label={t.settings_ignored_label} desc={t.settings_ignored_desc}>
+          <textarea
+            value={ignored}
+            onChange={e => setIgnored(e.target.value)}
+            rows={5}
+            placeholder={t.settings_ignored_placeholder}
+            style={s.textarea}
+          />
+        </Section>
+
+        <div style={s.footer}>
+          <button onClick={save} style={s.saveBtn}>
+            {saved ? t.settings_saved : t.settings_save}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Section({ label, desc, children }) {
+  return (
+    <div style={sec.wrap}>
+      <div style={sec.left}>
+        <div style={sec.label}>{label}</div>
+        <div style={sec.desc}>{desc}</div>
+      </div>
+      <div style={sec.right}>{children}</div>
+    </div>
+  )
+}
+
+function Divider() {
+  return <div style={{ borderTop: '1px solid var(--border)', margin: '0 -24px' }} />
+}
+
+const sec = {
+  wrap:  { display: 'flex', alignItems: 'flex-start', gap: 32, padding: '20px 0' },
+  left:  { flex: '0 0 260px' },
+  label: { fontSize: 14, fontWeight: 600, color: 'var(--text)' },
+  desc:  { fontSize: 13, color: 'var(--text-s)', marginTop: 4, lineHeight: 1.5 },
+  right: { flex: 1 },
+}
+
+const s = {
+  page:     { maxWidth: 700, paddingBottom: 32 },
+  title:    { margin: '0 0 24px', fontSize: 22, fontWeight: 800, color: 'var(--text)' },
+  card:     { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '0 24px' },
+  row:      { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
+  chip:     { padding: '6px 14px', border: '1px solid var(--border)', borderRadius: 8, background: 'transparent', color: 'var(--text-m)', cursor: 'pointer', fontSize: 13 },
+  chipActive:{ background: 'var(--accent-bg)', borderColor: 'var(--accent)', color: 'var(--accent)', fontWeight: 700 },
+  numInput: { width: 72, padding: '6px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 14, textAlign: 'center' },
+  unit:     { fontSize: 14, color: 'var(--text-s)' },
+  textarea: { width: '100%', padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', fontSize: 13, fontFamily: 'monospace', resize: 'vertical', lineHeight: 1.6 },
+  footer:   { padding: '20px 0', display: 'flex', justifyContent: 'flex-end' },
+  saveBtn:  { padding: '10px 28px', background: 'var(--accent)', color: 'var(--accent-fg)', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: 'pointer' },
+}
