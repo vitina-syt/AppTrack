@@ -323,16 +323,15 @@ class AutoCADMonitor:
     # ── COM mode ──────────────────────────────────────────────────────────
 
     def _get_acad_com(self):
-        """Try to connect to a running AutoCAD instance via COM."""
-        # Try GetActiveObject first (running instance)
-        try:
-            return win32com.client.GetActiveObject("AutoCAD.Application")
-        except Exception:
-            pass
-        # Try versioned ProgIDs
-        for prog_id in self.ACAD_PROG_IDS[1:]:
+        """Try to connect to a running AutoCAD instance via COM (early-bound)."""
+        # EnsureDispatch generates/caches the type-library wrapper so that
+        # WithEvents can find the event interface — plain GetActiveObject returns
+        # a late-bound object that lacks the type-library metadata WithEvents needs.
+        for prog_id in self.ACAD_PROG_IDS:
             try:
-                return win32com.client.GetActiveObject(prog_id)
+                late = win32com.client.GetActiveObject(prog_id)
+                # Upgrade to early-bound dispatch
+                return win32com.client.gencache.EnsureDispatch(late)
             except Exception:
                 pass
         return None
@@ -364,16 +363,11 @@ class AutoCADMonitor:
                 AppEvtClass = _make_app_event_class(self._dispatch)
                 app_conn = win32com.client.WithEvents(acad, AppEvtClass)
 
-                # Document events: ObjectAdded can be very noisy (hatch, array…)
-                # so we skip it here; OnLayoutSwitched is lightweight.
+                # Document events disabled: OnObjectAdded passes a live COM object
+                # reference into the callback. Accessing its properties (.ObjectName,
+                # .Layer) from our thread while AutoCAD is still constructing the
+                # object causes re-entrant COM calls → Access Violation crash in AutoCAD.
                 doc_conn = None
-                try:
-                    doc = acad.ActiveDocument
-                    if doc:
-                        DocEvtClass = _make_doc_event_class(self._dispatch)
-                        doc_conn = win32com.client.WithEvents(doc, DocEvtClass)
-                except Exception:
-                    pass
 
                 # ── COM message pump ──────────────────────────────────────
                 # IMPORTANT: Do NOT use MsgWaitForMultipleObjects(QS_ALLINPUT).

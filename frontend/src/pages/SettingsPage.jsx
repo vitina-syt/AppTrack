@@ -10,6 +10,7 @@ export default function SettingsPage() {
     theme, setTheme,
     pollInterval, setPollInterval,
     ignoredApps, setIgnoredApps,
+    avatarEnabled, setAvatarEnabled,
   } = useSettingsStore()
 
   const [interval, setInterval_] = useState(String(pollInterval))
@@ -69,6 +70,31 @@ export default function SettingsPage() {
             />
             <span style={s.unit}>s</span>
           </div>
+        </Section>
+
+        <Divider />
+
+        {/* Avatar toggle */}
+        <Section label={t.settings_avatar_label} desc={t.settings_avatar_desc}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+            <div
+              onClick={() => setAvatarEnabled(!avatarEnabled)}
+              style={{
+                width: 44, height: 24, borderRadius: 12,
+                background: avatarEnabled ? 'var(--accent)' : 'var(--border)',
+                position: 'relative', cursor: 'pointer', flexShrink: 0,
+                transition: 'background 0.2s',
+              }}>
+              <div style={{
+                position: 'absolute', top: 3, left: avatarEnabled ? 22 : 3,
+                width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                transition: 'left 0.2s',
+              }} />
+            </div>
+            <span style={{ fontSize: 13, color: avatarEnabled ? 'var(--accent)' : 'var(--text-s)' }}>
+              {avatarEnabled ? t.settings_avatar_on : t.settings_avatar_off}
+            </span>
+          </label>
         </Section>
 
         <Divider />

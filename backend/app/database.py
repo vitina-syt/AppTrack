@@ -114,5 +114,20 @@ def init_db() -> None:
 
         CREATE INDEX IF NOT EXISTS idx_scribe_events_session
             ON scribe_events(session_id, seq);
+
+        -- ── Frame Editor ─────────────────────────────────────────────────
+        -- Per-frame title, narration and annotation shapes for the editor
+        CREATE TABLE IF NOT EXISTS frame_annotations (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  INTEGER NOT NULL REFERENCES scribe_sessions(id) ON DELETE CASCADE,
+            event_id    INTEGER NOT NULL REFERENCES scribe_events(id)   ON DELETE CASCADE,
+            seq         INTEGER NOT NULL DEFAULT 0,
+            title       TEXT    NOT NULL DEFAULT '',
+            narration   TEXT    NOT NULL DEFAULT '',
+            shapes_json TEXT    NOT NULL DEFAULT '[]',  -- JSON array of annotation shapes
+            UNIQUE(session_id, event_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_frame_annotations_session
+            ON frame_annotations(session_id);
     """)
     conn.commit()

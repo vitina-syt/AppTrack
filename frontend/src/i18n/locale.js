@@ -74,6 +74,21 @@ export const LOCALES = {
     acad_poll: '刷新状态',
     acad_video_ready: '视频已就绪',
     acad_video_link: '点击查看视频',
+    acad_tab_video: '本地视频',
+    acad_video_desc: '将本次会话的截图合成为本地幻灯视频（MP4 / GIF）。\n需要 ffmpeg（生成 MP4）或 Pillow（生成 GIF）。',
+    acad_video_generate: '生成视频',
+    acad_video_generating: '生成中…',
+    acad_video_generating_hint: '正在合成截图，请稍候（通常 5–30 秒）',
+    acad_video_download: '下载视频',
+    acad_video_ready_hint: '视频已生成，点击「下载视频」保存到本地',
+    acad_video_error: '视频生成失败，请确认已安装 ffmpeg 或 Pillow，且本次会话有截图',
+    acad_video_refresh: '刷新状态',
+
+    // SettingsPage
+    settings_avatar_label: '数字人视频功能',
+    settings_avatar_desc: '开启后，AutoCAD / Scribe 页面显示 HeyGen / D-ID 数字人导出选项。默认关闭，避免意外调用付费 API。',
+    settings_avatar_on: '已开启',
+    settings_avatar_off: '已关闭',
 
     // ScribePage
     nav_scribe: 'Scribe',
@@ -195,6 +210,21 @@ export const LOCALES = {
     acad_poll: 'Refresh Status',
     acad_video_ready: 'Video ready',
     acad_video_link: 'Watch video',
+    acad_tab_video: 'Local Video',
+    acad_video_desc: 'Compile session screenshots into a local slideshow video (MP4 / GIF).\nRequires ffmpeg (for MP4) or Pillow (for GIF).',
+    acad_video_generate: 'Generate Video',
+    acad_video_generating: 'Generating…',
+    acad_video_generating_hint: 'Compositing screenshots, please wait (usually 5–30 s)',
+    acad_video_download: 'Download Video',
+    acad_video_ready_hint: 'Video is ready — click Download to save it locally',
+    acad_video_error: 'Video generation failed. Ensure ffmpeg or Pillow is installed and the session has screenshots.',
+    acad_video_refresh: 'Refresh Status',
+
+    // SettingsPage
+    settings_avatar_label: 'Avatar Video Feature',
+    settings_avatar_desc: 'When enabled, the AutoCAD / Scribe pages show HeyGen / D-ID export options. Disabled by default to avoid accidental paid API calls.',
+    settings_avatar_on: 'Enabled',
+    settings_avatar_off: 'Disabled',
 
     // ScribePage
     nav_scribe: 'Scribe',
@@ -315,6 +345,21 @@ export const LOCALES = {
     acad_poll: 'Status aktualisieren',
     acad_video_ready: 'Video bereit',
     acad_video_link: 'Video ansehen',
+    acad_tab_video: 'Lokales Video',
+    acad_video_desc: 'Screenshots der Sitzung zu einem lokalen Diavideo (MP4 / GIF) zusammenstellen.\nErfordert ffmpeg (für MP4) oder Pillow (für GIF).',
+    acad_video_generate: 'Video generieren',
+    acad_video_generating: 'Wird generiert…',
+    acad_video_generating_hint: 'Screenshots werden zusammengestellt, bitte warten (ca. 5–30 s)',
+    acad_video_download: 'Video herunterladen',
+    acad_video_ready_hint: 'Video ist fertig — zum Speichern herunterladen',
+    acad_video_error: 'Videogenerierung fehlgeschlagen. Bitte ffmpeg oder Pillow installieren und sicherstellen, dass Screenshots vorhanden sind.',
+    acad_video_refresh: 'Status aktualisieren',
+
+    // SettingsPage
+    settings_avatar_label: 'Avatar-Video-Funktion',
+    settings_avatar_desc: 'Wenn aktiviert, zeigen die AutoCAD-/Scribe-Seiten HeyGen/D-ID-Exportoptionen. Standardmäßig deaktiviert, um versehentliche kostenpflichtige API-Aufrufe zu vermeiden.',
+    settings_avatar_on: 'Aktiviert',
+    settings_avatar_off: 'Deaktiviert',
 
     // ScribePage
     nav_scribe: 'Scribe',

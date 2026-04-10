@@ -37,7 +37,7 @@ _load_dotenv()
 
 from app.database import init_db
 from app.tracker import tracker
-from app.api.routes import tracker_routes, sessions, stats, recordings, scribe_routes, autocad_routes
+from app.api.routes import tracker_routes, sessions, stats, recordings, scribe_routes, autocad_routes, editor_routes
 
 logging.basicConfig(level=logging.INFO)
 
@@ -71,6 +71,7 @@ app.include_router(stats.router)
 app.include_router(recordings.router)
 app.include_router(scribe_routes.router)
 app.include_router(autocad_routes.router)
+app.include_router(editor_routes.router)
 
 
 @app.get("/")

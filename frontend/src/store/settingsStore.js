@@ -14,6 +14,7 @@ const defaults = {
   theme: 'dark',
   pollInterval: 5,
   ignoredApps: ['explorer.exe', 'SearchHost.exe', 'ShellExperienceHost.exe'],
+  avatarEnabled: false,   // 数字人功能开关，默认关闭
 }
 
 export const useSettingsStore = create((set, get) => {
@@ -24,6 +25,7 @@ export const useSettingsStore = create((set, get) => {
     ...(p?.theme && ['dark','light'].includes(p.theme) ? { theme: p.theme } : {}),
     ...(p?.pollInterval >= 1 ? { pollInterval: p.pollInterval } : {}),
     ...(Array.isArray(p?.ignoredApps) ? { ignoredApps: p.ignoredApps } : {}),
+    ...(typeof p?.avatarEnabled === 'boolean' ? { avatarEnabled: p.avatarEnabled } : {}),
   }
 
   if (typeof document !== 'undefined') {
@@ -39,6 +41,7 @@ export const useSettingsStore = create((set, get) => {
     },
     setPollInterval: (pollInterval) => { set({ pollInterval }); save({ ...get(), pollInterval }) },
     setIgnoredApps: (ignoredApps) => { set({ ignoredApps }); save({ ...get(), ignoredApps }) },
+    setAvatarEnabled: (avatarEnabled) => { set({ avatarEnabled }); save({ ...get(), avatarEnabled }) },
     reset: () => { set({ ...defaults }); save({ ...defaults }); document.documentElement.setAttribute('data-theme', defaults.theme) },
   }
 })

@@ -10,6 +10,8 @@ PATCH  /api/autocad/sessions/{id}                — edit title / narration
 DELETE /api/autocad/sessions/{id}                — delete session + screenshots
 GET    /api/autocad/sessions/{id}/events         — event timeline (filterable)
 POST   /api/autocad/sessions/{id}/generate       — re-generate narration
+POST   /api/autocad/sessions/{id}/video          — generate local slideshow video
+GET    /api/autocad/sessions/{id}/video/download — download generated video
 POST   /api/autocad/sessions/{id}/avatar         — export to HeyGen / D-ID
 GET    /api/autocad/sessions/{id}/avatar/status  — poll avatar job
 GET    /api/autocad/sessions/{id}/events/{eid}/image — serve screenshot
@@ -35,10 +37,11 @@ router = APIRouter(prefix="/api/autocad", tags=["autocad"])
 
 @router.post("/start", response_model=ScribeAgentStatus)
 def start_autocad(
-    title:               str  = Query(default=""),
-    screenshot_interval: int  = Query(default=30, ge=5, le=300),
-    enable_voice:        bool = Query(default=True),
-    enable_com:          bool = Query(default=True),
+    title:                  str  = Query(default=""),
+    screenshot_interval:    int  = Query(default=30, ge=5, le=300),
+    enable_voice:           bool = Query(default=True),
+    enable_com:             bool = Query(default=True),
+    screenshot_on_command:  bool = Query(default=True),
 ):
     try:
         autocad_agent.start(
@@ -46,6 +49,7 @@ def start_autocad(
             screenshot_interval=screenshot_interval,
             enable_voice=enable_voice,
             enable_com=enable_com,
+            screenshot_on_command=screenshot_on_command,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -55,6 +59,7 @@ def start_autocad(
 @router.post("/stop", response_model=ScribeAgentStatus)
 def stop_autocad(
     generate: bool = Query(default=True),
+    lang:     str  = Query(default="zh", description="Narration language: zh | en | de"),
 ):
     status = autocad_agent.status
     if not status["running"]:
@@ -63,7 +68,7 @@ def stop_autocad(
     sid = status["session_id"]
 
     def _bg():
-        autocad_agent.stop(generate_narration=generate)
+        autocad_agent.stop(generate_narration=generate, lang=lang)
 
     threading.Thread(target=_bg, daemon=True).start()
 
@@ -190,6 +195,105 @@ def list_autocad_events(
     return [dict(r) for r in rows]
 
 
+# ── Local video generation ────────────────────────────────────────────────────
+
+@router.post("/sessions/{session_id}/video")
+def generate_video(
+    session_id: int,
+    fps: float = Query(default=1.0, ge=0.1, le=10.0,
+                       description="Frames per second (default 1 = 1 screenshot/sec)"),
+):
+    """
+    Generate a slideshow video from this session's screenshots.
+    Uses ffmpeg (MP4) if available, otherwise Pillow (GIF).
+    Returns immediately with a background task; poll /video/download to check.
+    """
+    conn = get_conn()
+    if not conn.execute(
+        "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        (session_id,),
+    ).fetchone():
+        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+
+    def _do():
+        try:
+            from app.video_export import build_video
+            build_video(session_id, fps=fps)
+        except Exception as exc:
+            logger.error("Video generation failed for session %d: %s", session_id, exc)
+
+    threading.Thread(target=_do, daemon=True).start()
+    return {"ok": True, "session_id": session_id, "status": "generating"}
+
+
+@router.get("/sessions/{session_id}/video/status")
+def video_status(session_id: int):
+    """
+    Diagnostic endpoint — returns generation status + environment info.
+    Frontend polls this instead of using HEAD on /download.
+    """
+    import shutil as _shutil
+    from app.video_export import get_job_state, get_existing_video, _screenshot_paths, _PIL
+    from app.autocad_agent import _MSS, SCREENSHOTS_BASE
+
+    # Screenshot count (files that exist on disk)
+    shots = _screenshot_paths(session_id)
+
+    # Also count raw DB rows (regardless of file existence) for diagnostics
+    conn2 = get_conn()
+    db_shot_count = conn2.execute(
+        "SELECT COUNT(*) FROM scribe_events WHERE session_id=? AND event_type='screenshot'",
+        (session_id,),
+    ).fetchone()[0]
+
+    # Existing file
+    existing = get_existing_video(session_id)
+
+    # Job state
+    state = get_job_state(session_id)
+    # If file exists but state wasn't tracked (e.g. after server restart), mark ready
+    if existing and state["status"] == "not_started":
+        state = {"status": "ready", "error": None}
+
+    return {
+        "status":              state["status"],       # not_started|generating|ready|error
+        "error":               state["error"],
+        "screenshot_count":    len(shots),            # files that exist on disk
+        "db_screenshot_count": db_shot_count,         # rows in DB (may differ if files missing)
+        "has_file":            existing is not None,
+        "file_type":           existing[1] if existing else None,
+        "screenshots_dir":     str(SCREENSHOTS_BASE / str(session_id)),
+        "env": {
+            "ffmpeg": _shutil.which("ffmpeg") is not None,
+            "pillow": _PIL,
+            "mss":    _MSS,
+        },
+    }
+
+
+@router.get("/sessions/{session_id}/video/download")
+def download_video(session_id: int):
+    """Download the generated video file (MP4 / GIF / ZIP)."""
+    conn = get_conn()
+    if not conn.execute(
+        "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        (session_id,),
+    ).fetchone():
+        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+
+    from app.video_export import get_existing_video
+    result = get_existing_video(session_id)
+    if not result:
+        raise HTTPException(status_code=404,
+                            detail="Video not ready yet — call POST /video first")
+
+    path, mime = result
+    ext = path.suffix
+    filename = f"autocad_session_{session_id}{ext}"
+    return FileResponse(str(path), media_type=mime,
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 @router.get("/sessions/{session_id}/events/{event_id}/image")
 def get_autocad_event_image(session_id: int, event_id: int):
     conn = get_conn()
@@ -214,7 +318,10 @@ def get_autocad_event_image(session_id: int, event_id: int):
 # ── Narration ─────────────────────────────────────────────────────────────────
 
 @router.post("/sessions/{session_id}/generate")
-def regenerate_autocad_narration(session_id: int):
+def regenerate_autocad_narration(
+    session_id: int,
+    lang: str = Query(default="zh", description="Output language: zh | en | de"),
+):
     conn = get_conn()
     if not conn.execute(
         "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
@@ -238,7 +345,7 @@ def regenerate_autocad_narration(session_id: int):
     conn.commit()
 
     def _do():
-        narration = _generate_narration_sync(events)
+        narration = _generate_narration_sync(events, lang=lang)
         import sqlite3
         from app.database import DB_PATH
         c = sqlite3.connect(str(DB_PATH))

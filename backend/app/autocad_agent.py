@@ -37,10 +37,10 @@ except ImportError:
     _PIL = False
 
 try:
-    import anthropic
-    _ANTHROPIC = True
-except ImportError:
-    _ANTHROPIC = False
+    from app.gpt_assistant import GPTAssistant
+    _GPT = True
+except Exception:
+    _GPT = False
 
 from app.autocad_monitor import AutoCADMonitor, categorize_command, COMMAND_CATEGORIES
 from app.voice_capture import VoiceCapture
@@ -77,7 +77,7 @@ def _take_screenshot(folder: Path, filename: str) -> Optional[str]:
             return png.name
         return path.name
     except Exception as exc:
-        logger.debug("Screenshot failed: %s", exc)
+        logger.warning("Screenshot failed: %s", exc)
         return None
 
 
@@ -96,8 +96,27 @@ _CATEGORY_LABELS = {
 }
 
 
-def _build_autocad_prompt(events: List[dict]) -> str:
-    """Build an AutoCAD-specific Claude prompt from captured events."""
+_LANG_INSTRUCTIONS = {
+    "zh": (
+        "请用**中文**撰写解说词脚本。",
+        "你是一位资深 CAD 讲师，正在为 AutoCAD 教程视频撰写专业解说词脚本。",
+        '请使用第二人称（例如"首先，您需要……"）逐步讲解操作步骤。',
+    ),
+    "en": (
+        "Write the narration script in **English**.",
+        "You are a senior CAD instructor creating a professional narration script for an AutoCAD tutorial video.",
+        "Write a clear, step-by-step narration in the second person ('First, you will...').",
+    ),
+    "de": (
+        "Bitte schreiben Sie das Skript auf **Deutsch**.",
+        "Sie sind ein erfahrener CAD-Dozent und erstellen ein professionelles Kommentarskript für ein AutoCAD-Tutorial.",
+        "Schreiben Sie eine klare Schritt-für-Schritt-Erklärung in der zweiten Person ('Zuerst werden Sie...').",
+    ),
+}
+
+
+def _build_autocad_prompt(events: List[dict], lang: str = "zh") -> str:
+    """Build an AutoCAD-specific GPT prompt from captured events."""
 
     # Separate command events from others
     cmd_events   = [e for e in events if "acad_cmd" in (e.get("uia_element_type") or "")]
@@ -116,11 +135,13 @@ def _build_autocad_prompt(events: List[dict]) -> str:
             e.get("uia_element_name", "").replace(" ✓", "")
         )
 
+    lang_ins = _LANG_INSTRUCTIONS.get(lang, _LANG_INSTRUCTIONS["zh"])
     lines = [
-        "You are a senior CAD instructor creating a professional narration script for an AutoCAD tutorial video.",
+        lang_ins[0],   # language instruction (must use XX language)
+        lang_ins[1],   # role description
         "",
         "Below is an event log captured while the user worked in AutoCAD.",
-        "Write a clear, step-by-step narration script in the second person ('First, you will...').",
+        lang_ins[2],   # second-person instruction
         "",
         "Guidelines:",
         "- Group related commands into logical tutorial steps",
@@ -194,26 +215,28 @@ def _build_autocad_prompt(events: List[dict]) -> str:
     return "\n".join(lines)
 
 
-def _generate_narration_sync(events: List[dict]) -> str:
-    """Call Claude synchronously (runs in a thread)."""
-    if not _ANTHROPIC:
+def _generate_narration_sync(events: List[dict], lang: str = "zh") -> str:
+    """Call Azure OpenAI GPT synchronously (runs in a thread)."""
+    if not _GPT:
+        logger.warning("GPTAssistant not available — using fallback narration")
         return _fallback_narration(events)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = (os.environ.get("AZURE_OPENAI_API_KEY")
+               or os.environ.get("OPENAI_API_KEY", ""))
     if not api_key:
-        logger.warning("ANTHROPIC_API_KEY not set — using fallback narration")
+        logger.warning("AZURE_OPENAI_API_KEY not set — using fallback narration")
         return _fallback_narration(events)
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=4096,
-            messages=[{"role": "user", "content": _build_autocad_prompt(events)}],
-        )
-        return msg.content[0].text.strip()
+        gpt = GPTAssistant()
+        prompt = _build_autocad_prompt(events, lang=lang)
+        result = gpt.chat(prompt)
+        if result:
+            return result
+        logger.warning("GPT returned empty response — using fallback narration")
+        return _fallback_narration(events)
     except Exception as exc:
-        logger.error("Claude narration failed: %s", exc)
+        logger.error("GPT narration failed: %s", exc)
         return _fallback_narration(events)
 
 
@@ -255,6 +278,9 @@ class AutoCADScribeAgent:
         self._conn:     Optional[sqlite3.Connection] = None
         self._screenshot_folder: Optional[Path]      = None
         self._screenshot_interval = 30
+        self._screenshot_on_command = True   # take screenshot after each command
+        self._last_cmd_screenshot: float = 0.0  # monotonic time of last command screenshot
+        self._cmd_screenshot_cooldown = 2.0  # minimum seconds between command screenshots
         # Async write queue — events are queued here and flushed every 500 ms
         # by a dedicated writer thread, so event callbacks never block on I/O.
         self._write_queue: queue.Queue = queue.Queue()
@@ -263,15 +289,18 @@ class AutoCADScribeAgent:
 
     def start(
         self,
-        title:               str  = "",
-        screenshot_interval: int  = 30,
-        enable_voice:        bool = True,
-        enable_com:          bool = True,
+        title:                  str  = "",
+        screenshot_interval:    int  = 30,
+        enable_voice:           bool = True,
+        enable_com:             bool = True,
+        screenshot_on_command:  bool = True,
     ) -> int:
         with self._lock:
             if self._running:
                 raise RuntimeError("AutoCAD scribe session already in progress")
-            self._screenshot_interval = screenshot_interval
+            self._screenshot_interval   = screenshot_interval
+            self._screenshot_on_command = screenshot_on_command
+            self._last_cmd_screenshot   = 0.0
 
         from app.database import DB_PATH
         self._conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
@@ -327,7 +356,7 @@ class AutoCADScribeAgent:
         logger.info("AutoCADScribeAgent started session_id=%d", sid)
         return sid
 
-    def stop(self, generate_narration: bool = True) -> Optional[int]:
+    def stop(self, generate_narration: bool = True, lang: str = "zh") -> Optional[int]:
         with self._lock:
             if not self._running:
                 return None
@@ -358,7 +387,7 @@ class AutoCADScribeAgent:
             self._conn.commit()
 
         if generate_narration and sid is not None:
-            self._run_narration(sid)
+            self._run_narration(sid, lang=lang)
 
         if self._conn:
             self._conn.close()
@@ -381,7 +410,7 @@ class AutoCADScribeAgent:
 
     # ── narration ─────────────────────────────────────────────────────────
 
-    def _run_narration(self, sid: int) -> None:
+    def _run_narration(self, sid: int, lang: str = "zh") -> None:
         from app.database import DB_PATH
         try:
             conn = sqlite3.connect(str(DB_PATH))
@@ -396,7 +425,7 @@ class AutoCADScribeAgent:
             conn.close()
 
             events = [dict(r) for r in rows]
-            narration = _generate_narration_sync(events)
+            narration = _generate_narration_sync(events, lang=lang)
 
             conn2 = sqlite3.connect(str(DB_PATH))
             conn2.execute(
@@ -427,6 +456,7 @@ class AutoCADScribeAgent:
             if not self._running:
                 return
             rid = self._session_id
+            on_cmd = self._screenshot_on_command
         self._write_event(
             session_id=rid,
             event_type=event.get("event_type", "uia_invoke"),
@@ -436,6 +466,23 @@ class AutoCADScribeAgent:
             uia_element_type=event.get("uia_element_type"),
             uia_automation_id=event.get("uia_automation_id"),
         )
+
+        # Take a screenshot when a command finishes (EndCommand).
+        # Cooldown prevents screenshot floods on rapid commands like UNDO/REDO.
+        if on_cmd:
+            aid = event.get("uia_automation_id") or ""
+            if aid.startswith("EndCommand:"):
+                now = time.monotonic()
+                with self._lock:
+                    elapsed = now - self._last_cmd_screenshot
+                    if elapsed >= self._cmd_screenshot_cooldown:
+                        self._last_cmd_screenshot = now
+                        do_shot = True
+                    else:
+                        do_shot = False
+                if do_shot:
+                    cmd_name = aid[len("EndCommand:"):]
+                    self._save_screenshot(f"cmd:{cmd_name}")
 
     def _on_voice_segment(self, seg: dict) -> None:
         with self._lock:

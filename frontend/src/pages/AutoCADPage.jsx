@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useT } from '../hooks/useT'
+import { useSettingsStore } from '../store/settingsStore'
+import { useNavigate } from 'react-router-dom'
 import {
   getAutoCADStatus, startAutoCAD, stopAutoCAD,
   listAutoCADSessions, getAutoCADSession,
@@ -93,18 +95,22 @@ function CommandPill({ name, category }) {
 
 export default function AutoCADPage() {
   const t = useT()
+  const navigate      = useNavigate()
+  const avatarEnabled = useSettingsStore(s => s.avatarEnabled)
+  const language      = useSettingsStore(s => s.language)
 
   const [agentStatus, setAgentStatus] = useState(null)
   const [sessions, setSessions]       = useState([])
   const [selected, setSelected]       = useState(null)
   const [events, setEvents]           = useState([])
   const [loading, setLoading]         = useState(true)
-  const [tab, setTab]                 = useState('commands') // 'commands' | 'narration' | 'avatar'
+  const [tab, setTab]                 = useState('commands') // 'commands' | 'narration' | 'avatar' | 'video'
 
   // form
-  const [title, setTitle]       = useState('')
-  const [enableVoice, setVoice] = useState(true)
-  const [enableCom, setCom]     = useState(true)
+  const [title, setTitle]             = useState('')
+  const [enableVoice, setVoice]       = useState(true)
+  const [enableCom, setCom]           = useState(true)
+  const [screenshotOnCmd, setShotCmd] = useState(true)
 
   // avatar
   const [provider, setProvider]   = useState('heygen')
@@ -150,12 +156,12 @@ export default function AutoCADPage() {
   // ── actions ──────────────────────────────────────────────────────────────────
 
   async function handleStart() {
-    await startAutoCAD({ title, enableVoice, enableCom })
+    await startAutoCAD({ title, enableVoice, enableCom, screenshotOnCommand: screenshotOnCmd })
     reload()
   }
 
   async function handleStop() {
-    await stopAutoCAD(true)
+    await stopAutoCAD(true, language)
     reload()
   }
 
@@ -169,7 +175,7 @@ export default function AutoCADPage() {
 
   async function handleRegenerate() {
     if (!selected) return
-    await regenerateAutoCADNarration(selected.id)
+    await regenerateAutoCADNarration(selected.id, language)
     setSelected(s => ({ ...s, status: 'processing' }))
   }
 
@@ -192,6 +198,44 @@ export default function AutoCADPage() {
     } catch (e) {
       setAvatarResult({ error: String(e) })
     }
+  }
+
+  const [videoStatus, setVideoStatus] = useState(null)  // null|'generating'|'ready'|'error'
+  const [videoDiag,   setVideoDiag]   = useState(null)  // full status object from backend
+
+  async function handleGenerateVideo() {
+    if (!selected) return
+    setVideoStatus('generating')
+    setVideoDiag(null)
+    try {
+      const { generateAutoCADVideo, getAutoCADVideoStatus } = await import('../api')
+      await generateAutoCADVideo(selected.id)
+
+      // Poll /video/status until done or error
+      const poll = async () => {
+        try {
+          const s = await getAutoCADVideoStatus(selected.id)
+          setVideoDiag(s)
+          if (s.status === 'ready')  { setVideoStatus('ready');  return }
+          if (s.status === 'error')  { setVideoStatus('error');  return }
+        } catch (_) {}
+        setTimeout(poll, 2000)
+      }
+      setTimeout(poll, 1000)
+    } catch (e) {
+      setVideoStatus('error')
+    }
+  }
+
+  async function handleRefreshVideoStatus() {
+    if (!selected) return
+    try {
+      const { getAutoCADVideoStatus } = await import('../api')
+      const s = await getAutoCADVideoStatus(selected.id)
+      setVideoDiag(s)
+      if (s.status === 'ready') setVideoStatus('ready')
+      if (s.status === 'error') setVideoStatus('error')
+    } catch (_) {}
   }
 
   // ── derived ───────────────────────────────────────────────────────────────────
@@ -246,7 +290,7 @@ export default function AutoCADPage() {
                     onChange={e => setTitle(e.target.value)}
                     placeholder={t.acad_title_ph} />
                 </label>
-                <div style={{ display: 'flex', gap: 16 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <label style={s.checkLabel}>
                     <input type="checkbox" checked={enableCom}
                       onChange={e => setCom(e.target.checked)} />
@@ -256,6 +300,11 @@ export default function AutoCADPage() {
                     <input type="checkbox" checked={enableVoice}
                       onChange={e => setVoice(e.target.checked)} />
                     {t.acad_voice}
+                  </label>
+                  <label style={s.checkLabel}>
+                    <input type="checkbox" checked={screenshotOnCmd}
+                      onChange={e => setShotCmd(e.target.checked)} />
+                    每步命令截图
                   </label>
                 </div>
                 <div style={s.hintBox}>{t.acad_prereq}</div>
@@ -342,9 +391,11 @@ export default function AutoCADPage() {
 
                 {/* Tab bar */}
                 <div style={s.tabBar}>
-                  {[['commands', t.acad_tab_commands],
+                  {[
+                    ['commands',  t.acad_tab_commands],
                     ['narration', t.acad_tab_narration],
-                    ['avatar', t.acad_tab_avatar],
+                    ['video',     t.acad_tab_video],
+                    ...(avatarEnabled ? [['avatar', t.acad_tab_avatar]] : []),
                   ].map(([id, label]) => (
                     <button key={id} style={{ ...s.tab, ...(tab === id ? s.tabActive : {}) }}
                       onClick={() => setTab(id)}>
@@ -402,8 +453,118 @@ export default function AutoCADPage() {
                 </div>
               )}
 
-              {/* ── Avatar tab ── */}
-              {tab === 'avatar' && (
+              {/* ── Video tab ── */}
+              {tab === 'video' && (
+                <div style={s.card}>
+                  <div style={s.cardTitle}>{t.acad_tab_video}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-s)', lineHeight: 1.6 }}>
+                      {t.acad_video_desc}
+                    </div>
+
+                    {/* Action buttons */}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button style={{ ...s.btnPrimary, background: '#bb9af7' }}
+                        onClick={() => navigate(`/autocad/editor/${selected.id}`)}>
+                        ✎ 编辑帧
+                      </button>
+                      <button style={s.btnPrimary} onClick={handleGenerateVideo}
+                        disabled={videoStatus === 'generating'}>
+                        {videoStatus === 'generating' ? t.acad_video_generating : t.acad_video_generate}
+                      </button>
+                      <button style={s.btnSecondary} onClick={handleRefreshVideoStatus}>
+                        ↻ {t.acad_video_refresh}
+                      </button>
+                      {videoStatus === 'ready' && (
+                        <a href={`/api/autocad/sessions/${selected.id}/video/download`}
+                          style={{ ...s.btnPrimary, background: '#9ece6a', textDecoration: 'none',
+                                   display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          ↓ {t.acad_video_download}
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Status messages */}
+                    {videoStatus === 'generating' && (
+                      <div style={s.hintBox}>{t.acad_video_generating_hint}</div>
+                    )}
+                    {videoStatus === 'ready' && (
+                      <div style={s.infoBox}>{t.acad_video_ready_hint}</div>
+                    )}
+                    {videoStatus === 'error' && (
+                      <div style={s.errorBox}>
+                        {videoDiag?.error || t.acad_video_error}
+                      </div>
+                    )}
+
+                    {/* Diagnostic panel — always visible once checked */}
+                    {videoDiag && (
+                      <div style={s.diagBox}>
+                        <div style={s.diagRow}>
+                          <span style={s.diagKey}>状态</span>
+                          <span style={{ color: videoDiag.status === 'ready' ? '#9ece6a'
+                                              : videoDiag.status === 'error' ? '#f7768e'
+                                              : '#e0af68' }}>
+                            {videoDiag.status}
+                          </span>
+                        </div>
+                        <div style={s.diagRow}>
+                          <span style={s.diagKey}>截图(磁盘)</span>
+                          <span style={{ color: videoDiag.screenshot_count === 0 ? '#f7768e' : '#9ece6a' }}>
+                            {videoDiag.screenshot_count}
+                            {videoDiag.screenshot_count === 0 && '  ← 文件不存在'}
+                          </span>
+                        </div>
+                        <div style={s.diagRow}>
+                          <span style={s.diagKey}>截图(DB)</span>
+                          <span style={{ color: (videoDiag.db_screenshot_count ?? 0) === 0 ? '#f7768e' : '#9ece6a' }}>
+                            {videoDiag.db_screenshot_count ?? 0}
+                            {(videoDiag.db_screenshot_count ?? 0) === 0 && '  ← 未记录，mss 未工作'}
+                          </span>
+                        </div>
+                        <div style={s.diagRow}>
+                          <span style={s.diagKey}>mss</span>
+                          <span style={{ color: videoDiag.env?.mss ? '#9ece6a' : '#f7768e' }}>
+                            {videoDiag.env?.mss ? '✓ 已安装' : '✗ 未安装 — pip install mss'}
+                          </span>
+                        </div>
+                        <div style={s.diagRow}>
+                          <span style={s.diagKey}>ffmpeg</span>
+                          <span style={{ color: videoDiag.env?.ffmpeg ? '#9ece6a' : '#e0af68' }}>
+                            {videoDiag.env?.ffmpeg ? '✓ 已安装（生成 MP4）' : '✗ 未找到（将生成 GIF）'}
+                          </span>
+                        </div>
+                        <div style={s.diagRow}>
+                          <span style={s.diagKey}>Pillow</span>
+                          <span style={{ color: videoDiag.env?.pillow ? '#9ece6a' : '#f7768e' }}>
+                            {videoDiag.env?.pillow ? '✓ 已安装' : '✗ 未安装 — pip install Pillow'}
+                          </span>
+                        </div>
+                        {videoDiag.screenshots_dir && (
+                          <div style={s.diagRow}>
+                            <span style={s.diagKey}>截图目录</span>
+                            <code style={{ fontSize: 11, color: 'var(--text-s)', wordBreak: 'break-all' }}>
+                              {videoDiag.screenshots_dir}
+                            </code>
+                          </div>
+                        )}
+                        {videoDiag.error && (
+                          <div style={{ ...s.diagRow, flexDirection: 'column', gap: 4 }}>
+                            <span style={s.diagKey}>错误详情</span>
+                            <code style={{ fontSize: 11, color: '#f7768e', whiteSpace: 'pre-wrap',
+                                           wordBreak: 'break-all' }}>
+                              {videoDiag.error}
+                            </code>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Avatar tab (only when enabled in Settings) ── */}
+              {tab === 'avatar' && avatarEnabled && (
                 <div style={s.card}>
                   <div style={s.cardTitle}>{t.acad_avatar}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -558,6 +719,11 @@ const s = {
   hintBox:  { fontSize: 12, color: '#e0af68', background: '#2d2510',
               border: '1px solid #e0af6844', borderRadius: 7,
               padding: '7px 10px', lineHeight: 1.5 },
+  diagBox:  { background: 'var(--surface2, #1e2030)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '12px 14px', display: 'flex',
+              flexDirection: 'column', gap: 8 },
+  diagRow:  { display: 'flex', gap: 12, alignItems: 'flex-start', fontSize: 12 },
+  diagKey:  { color: 'var(--text-s)', flexShrink: 0, width: 72 },
   errorBox: { background: '#2d1a20', border: '1px solid #f7768e', borderRadius: 8,
               padding: '10px 14px', fontSize: 12, color: '#f7768e' },
   infoBox:  { background: '#1a2d1a', border: '1px solid #9ece6a', borderRadius: 8,
