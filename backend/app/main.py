@@ -1,6 +1,6 @@
 """
 AppTrack backend entry point.
-FastAPI + CORS + lifespan: tracker starts automatically on launch.
+FastAPI + CORS.
 """
 import logging
 import os
@@ -9,8 +9,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Load .env from backend/ directory (if it exists) before anything else.
-# Supports both python-dotenv and a minimal fallback parser.
+
 def _load_dotenv():
     env_path = Path(__file__).parent.parent / ".env"
     if not env_path.exists():
@@ -21,7 +20,6 @@ def _load_dotenv():
         return
     except ImportError:
         pass
-    # Minimal fallback: parse KEY=VALUE lines without the dotenv package
     with open(env_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -36,8 +34,7 @@ def _load_dotenv():
 _load_dotenv()
 
 from app.database import init_db
-from app.tracker import tracker
-from app.api.routes import tracker_routes, sessions, stats, recordings, scribe_routes, autocad_routes, editor_routes
+from app.api.routes import autocad_routes, editor_routes, gallery_routes, util_routes
 
 logging.basicConfig(level=logging.INFO)
 
@@ -45,14 +42,12 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    tracker.start(poll_interval=5)
     yield
-    tracker.stop()
 
 
 app = FastAPI(
     title="AppTrack API",
-    description="Windows 桌面软件使用时长追踪 — 本地优先",
+    description="CAD 操作录屏与教学视频生成",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -65,13 +60,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(tracker_routes.router)
-app.include_router(sessions.router)
-app.include_router(stats.router)
-app.include_router(recordings.router)
-app.include_router(scribe_routes.router)
 app.include_router(autocad_routes.router)
 app.include_router(editor_routes.router)
+app.include_router(gallery_routes.router)
+app.include_router(util_routes.router)
 
 
 @app.get("/")

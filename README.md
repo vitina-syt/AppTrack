@@ -31,8 +31,8 @@ Windows 桌面软件使用时长追踪工具。自动记录前台应用的切换
 cd backend
 
 # 创建虚拟环境（推荐）
-py -3.12 -m venv .venv
-.venv\Scripts\activate
+py -3.12 -m venv venv
+venv\Scripts\activate
 
 # 安装依赖
 pip install -r requirements.txt

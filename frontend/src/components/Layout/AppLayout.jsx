@@ -12,11 +12,8 @@ export default function AppLayout() {
       <aside style={s.sidebar}>
         <div style={s.brand}>AppTrack</div>
         <nav style={s.nav}>
-          <SidebarLink to="/"          end>{t.nav_home}</SidebarLink>
-          <SidebarLink to="/dashboard">{t.nav_dashboard}</SidebarLink>
-          <SidebarLink to="/history"  >{t.nav_history}</SidebarLink>
-          <SidebarLink to="/scribe"   >{t.nav_scribe}</SidebarLink>
-          <SidebarLink to="/autocad"  >{t.nav_autocad}</SidebarLink>
+          <SidebarLink to="/record"   >{t.nav_record}</SidebarLink>
+          <SidebarLink to="/gallery"  >{t.nav_gallery}</SidebarLink>
           <SidebarLink to="/settings" >{t.nav_settings}</SidebarLink>
         </nav>
 

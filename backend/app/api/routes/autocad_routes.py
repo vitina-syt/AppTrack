@@ -1,10 +1,10 @@
 """
 AutoCAD Scribe REST API  —  /api/autocad/*
 
-POST   /api/autocad/start                        — start AutoCAD scribe session
+POST   /api/autocad/start                        — start scribe session (any target app)
 POST   /api/autocad/stop                         — stop & generate narration
 GET    /api/autocad/status                       — live agent status
-GET    /api/autocad/sessions                     — list AutoCAD sessions (target_app=acad.exe)
+GET    /api/autocad/sessions                     — list all sessions
 GET    /api/autocad/sessions/{id}                — session detail
 PATCH  /api/autocad/sessions/{id}                — edit title / narration
 DELETE /api/autocad/sessions/{id}                — delete session + screenshots
@@ -17,16 +17,22 @@ GET    /api/autocad/sessions/{id}/avatar/status  — poll avatar job
 GET    /api/autocad/sessions/{id}/events/{eid}/image — serve screenshot
 GET    /api/autocad/commands                     — list known AutoCAD command categories
 """
+import logging
 import shutil
 import threading
 from pathlib import Path
 from typing import Optional, List
 
+logger = logging.getLogger("app.autocad_routes")
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.database import get_conn
-from app.autocad_agent import autocad_agent, _generate_narration_sync, _CATEGORY_LABELS
+from app.autocad_agent import (
+    autocad_agent, is_target_running, get_running_windows,
+    _generate_narration_sync, _CATEGORY_LABELS,
+)
 from app.autocad_monitor import COMMAND_CATEGORIES
 from app.models import ScribeSession, ScribeSessionUpdate, ScribeEvent, ScribeAgentStatus
 
@@ -35,21 +41,46 @@ router = APIRouter(prefix="/api/autocad", tags=["autocad"])
 
 # ── Agent control ─────────────────────────────────────────────────────────────
 
+@router.get("/running-windows")
+def list_running_windows():
+    """Return visible, titled windows as [{exe, title, pid}] — used to populate the app selector."""
+    return get_running_windows()
+
+
 @router.post("/start", response_model=ScribeAgentStatus)
 def start_autocad(
     title:                  str  = Query(default=""),
+    target_exe:             str  = Query(default="acad.exe"),
     screenshot_interval:    int  = Query(default=30, ge=5, le=300),
     enable_voice:           bool = Query(default=True),
     enable_com:             bool = Query(default=True),
     screenshot_on_command:  bool = Query(default=True),
+    screenshot_on_click:        bool = Query(default=False),
+    screenshot_on_middle_drag:  bool = Query(default=False, description="Creo: middle-button drag → rotation"),
+    screenshot_on_scroll_zoom:  bool = Query(default=False, description="Creo: scroll wheel zoom in/out"),
+    screenshot_on_shift_pan:    bool = Query(default=False, description="Creo: Shift+middle-button drag → pan"),
+    creo_trail_file:            str  = Query(default="", description="Path to Creo trail.txt (optional, overrides auto-detection)"),
+    background:                 str  = Query(default="", description="Background context for AI narration generation"),
 ):
+    if not is_target_running(target_exe):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{target_exe} 未运行，请先启动该程序再开始监听。",
+        )
     try:
         autocad_agent.start(
             title=title,
+            target_exe=target_exe,
             screenshot_interval=screenshot_interval,
             enable_voice=enable_voice,
             enable_com=enable_com,
             screenshot_on_command=screenshot_on_command,
+            screenshot_on_click=screenshot_on_click,
+            screenshot_on_middle_drag=screenshot_on_middle_drag,
+            screenshot_on_scroll_zoom=screenshot_on_scroll_zoom,
+            screenshot_on_shift_pan=screenshot_on_shift_pan,
+            creo_trail_file=creo_trail_file,
+            background=background,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -57,20 +88,20 @@ def start_autocad(
 
 
 @router.post("/stop", response_model=ScribeAgentStatus)
-def stop_autocad(
-    generate: bool = Query(default=True),
-    lang:     str  = Query(default="zh", description="Narration language: zh | en | de"),
-):
+def stop_autocad():
     status = autocad_agent.status
     if not status["running"]:
-        raise HTTPException(status_code=409, detail="No active AutoCAD scribe session")
+        return {
+            "running":         False,
+            "session_id":      status.get("session_id"),
+            "events_captured": status.get("events_captured", 0),
+            "voice_segments":  status.get("voice_segments", 0),
+            "uia_events":      status.get("uia_events", 0),
+        }
 
     sid = status["session_id"]
 
-    def _bg():
-        autocad_agent.stop(generate_narration=generate, lang=lang)
-
-    threading.Thread(target=_bg, daemon=True).start()
+    threading.Thread(target=autocad_agent.stop, daemon=True).start()
 
     return {
         "running":         False,
@@ -86,7 +117,7 @@ def get_autocad_status():
     return autocad_agent.status
 
 
-# ── Sessions (filtered to acad.exe) ──────────────────────────────────────────
+# ── Sessions ──────────────────────────────────────────────────────────────────
 
 @router.get("/sessions", response_model=List[ScribeSession])
 def list_autocad_sessions(
@@ -98,7 +129,6 @@ def list_autocad_sessions(
         """SELECT s.*,
                   (SELECT COUNT(*) FROM scribe_events e WHERE e.session_id = s.id) AS event_count
            FROM scribe_sessions s
-           WHERE s.target_app = 'acad.exe'
            ORDER BY s.started_at DESC
            LIMIT ? OFFSET ?""",
         (limit, offset),
@@ -112,11 +142,11 @@ def get_autocad_session(session_id: int):
     row = conn.execute(
         """SELECT s.*,
                   (SELECT COUNT(*) FROM scribe_events e WHERE e.session_id = s.id) AS event_count
-           FROM scribe_sessions s WHERE s.id = ? AND s.target_app = 'acad.exe'""",
+           FROM scribe_sessions s WHERE s.id = ?""",
         (session_id,),
     ).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
     return dict(row)
 
 
@@ -124,10 +154,10 @@ def get_autocad_session(session_id: int):
 def update_autocad_session(session_id: int, body: ScribeSessionUpdate):
     conn = get_conn()
     if not conn.execute(
-        "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT id FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone():
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
 
     if body.title is not None:
         conn.execute("UPDATE scribe_sessions SET title=? WHERE id=?", (body.title, session_id))
@@ -144,11 +174,11 @@ def update_autocad_session(session_id: int, body: ScribeSessionUpdate):
 def delete_autocad_session(session_id: int):
     conn = get_conn()
     row = conn.execute(
-        "SELECT screenshot_dir FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT screenshot_dir FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
 
     folder = Path(row["screenshot_dir"])
     if folder.exists():
@@ -171,10 +201,10 @@ def list_autocad_events(
 ):
     conn = get_conn()
     if not conn.execute(
-        "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT id FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone():
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
 
     clauses = ["session_id=?"]
     params: list = [session_id]
@@ -210,10 +240,10 @@ def generate_video(
     """
     conn = get_conn()
     if not conn.execute(
-        "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT id FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone():
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
 
     def _do():
         try:
@@ -276,10 +306,10 @@ def download_video(session_id: int):
     """Download the generated video file (MP4 / GIF / ZIP)."""
     conn = get_conn()
     if not conn.execute(
-        "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT id FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone():
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
 
     from app.video_export import get_existing_video
     result = get_existing_video(session_id)
@@ -324,16 +354,25 @@ def regenerate_autocad_narration(
 ):
     conn = get_conn()
     if not conn.execute(
-        "SELECT id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT id FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone():
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    sess_row = conn.execute(
+        "SELECT target_app, background FROM scribe_sessions WHERE id=?", (session_id,)
+    ).fetchone()
+    target_exe = (sess_row["target_app"] if sess_row else None) or "acad.exe"
+    background = (sess_row["background"] if sess_row else None) or ""
 
     rows = conn.execute(
-        """SELECT event_type, timestamp, app_name, window_title,
-                  uia_element_name, uia_element_type, uia_automation_id,
-                  screenshot_path, voice_text, voice_confidence
-           FROM scribe_events WHERE session_id=? ORDER BY seq""",
+        """SELECT e.event_type, e.timestamp, e.app_name, e.window_title,
+                  e.uia_element_name, e.uia_element_type, e.uia_automation_id,
+                  e.screenshot_path, e.annotation, e.voice_text, e.voice_confidence,
+                  fa.shapes_json
+           FROM scribe_events e
+           LEFT JOIN frame_annotations fa ON fa.event_id = e.id
+           WHERE e.session_id=? ORDER BY e.seq""",
         (session_id,),
     ).fetchall()
     events = [dict(r) for r in rows]
@@ -345,7 +384,7 @@ def regenerate_autocad_narration(
     conn.commit()
 
     def _do():
-        narration = _generate_narration_sync(events, lang=lang)
+        narration = _generate_narration_sync(events, lang=lang, target_exe=target_exe)
         import sqlite3
         from app.database import DB_PATH
         c = sqlite3.connect(str(DB_PATH))
@@ -371,11 +410,11 @@ def submit_autocad_avatar(
 ):
     conn = get_conn()
     row = conn.execute(
-        "SELECT narration_text FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT narration_text FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
     if not row["narration_text"]:
         raise HTTPException(status_code=422, detail="No narration — run /generate first")
 
@@ -407,11 +446,11 @@ def poll_autocad_avatar(
 ):
     conn = get_conn()
     row = conn.execute(
-        "SELECT avatar_job_id FROM scribe_sessions WHERE id=? AND target_app='acad.exe'",
+        "SELECT avatar_job_id FROM scribe_sessions WHERE id=?",
         (session_id,),
     ).fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="AutoCAD session not found")
+        raise HTTPException(status_code=404, detail="Session not found")
     if not row["avatar_job_id"]:
         raise HTTPException(status_code=422, detail="No avatar job submitted")
 

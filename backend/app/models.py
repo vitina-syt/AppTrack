@@ -80,6 +80,7 @@ class RecorderStatus(BaseModel):
 class ScribeSession(BaseModel):
     id: int
     title: str
+    background: Optional[str] = ""
     target_app: str
     started_at: str
     ended_at: Optional[str]

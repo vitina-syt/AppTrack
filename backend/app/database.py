@@ -83,6 +83,7 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS scribe_sessions (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
             title            TEXT NOT NULL DEFAULT '',
+            background       TEXT NOT NULL DEFAULT '',  -- user-provided context for AI narration
             target_app       TEXT NOT NULL DEFAULT 'Creo',   -- process name to monitor
             started_at       TEXT NOT NULL,
             ended_at         TEXT,
@@ -130,4 +131,13 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_frame_annotations_session
             ON frame_annotations(session_id);
     """)
+    # ── Migrations (add columns to existing tables without data loss) ──────────
+    migrations = [
+        "ALTER TABLE scribe_sessions ADD COLUMN background TEXT NOT NULL DEFAULT ''",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass   # column already exists
     conn.commit()

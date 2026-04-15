@@ -12,11 +12,13 @@
  */
 
 import { useRef, useState, useCallback, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
-  listFrames, updateFrame, distributeNarration,
-  generateAnnotatedVideo, getAutoCADVideoStatus,
+  listFrames, updateFrame, deleteFrame, distributeNarration,
+  generateNarratedVideo, getNarratedVideoStatus,
+  getAutoCADSession, regenerateAutoCADNarration,
 } from '../api'
+import { useT } from '../hooks/useT'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Coordinate helpers  (adapted from AutoScribe Viewer.jsx)
@@ -213,7 +215,7 @@ function CanvasViewer({ sessionId, eventId, shapes, selectedAnnId, tool, onAddBl
       ctx.fillRect(0, 0, canvas.width || 400, canvas.height || 300)
       ctx.fillStyle = '#565f89'
       ctx.font = '14px sans-serif'
-      ctx.fillText('无法加载截图', 12, 30)
+      ctx.fillText('—', 12, 30)
     }
     // Assign src AFTER event handlers — avoids missing cached-image load events
     img.src = imgUrl
@@ -287,6 +289,9 @@ function newId() { return ++_seq }
 export default function AutoCADEditorPage() {
   const { sessionId } = useParams()
   const navigate      = useNavigate()
+  const location      = useLocation()
+  const backTo        = location.state?.backTo ?? '/autocad'
+  const t             = useT()
 
   const [frames,       setFrames]       = useState([])
   const [idx,          setIdx]          = useState(0)
@@ -295,14 +300,23 @@ export default function AutoCADEditorPage() {
   const [dirty,        setDirty]        = useState(false)
   const [saving,       setSaving]       = useState(false)
   const [distributing, setDistributing] = useState(false)
+  const [distStatus,   setDistStatus]   = useState('')   // label shown in button while working
   const [videoState,   setVideoState]   = useState(null)  // null|generating|ready|error
+  const [voice,        setVoice]        = useState('alloy')
+  const [narrationText,setNarrationText]= useState(null)  // null = not loaded yet
 
-  // ── Load frames ────────────────────────────────────────────────────────────
+  // ── Load frames + session ──────────────────────────────────────────────────
 
   useEffect(() => {
     listFrames(sessionId).then(data =>
-      setFrames(data.map(f => ({ ...f, shapes: tryParse(f.shapes_json) })))
+      setFrames(data.map(f => ({
+        ...f,
+        shapes:           tryParse(f.shapes_json),
+        voice_text:       f.voice_text       ?? null,
+        voice_confidence: f.voice_confidence ?? null,
+      })))
     )
+    getAutoCADSession(sessionId).then(s => setNarrationText(s.narration_text ?? '')).catch(() => {})
   }, [sessionId])
 
   function tryParse(raw) {
@@ -342,6 +356,22 @@ export default function AutoCADEditorPage() {
     setSelectedAnnId(null)
   }
 
+  async function handleDeleteFrame(i) {
+    const f = frames[i]
+    if (!f) return
+    try {
+      await deleteFrame(sessionId, f.event_id)
+      const next = frames.filter((_, fi) => fi !== i)
+      setFrames(next)
+      setDirty(false)
+      // Keep selection in bounds
+      setIdx(prev => Math.min(prev, Math.max(0, next.length - 1)))
+      setSelectedAnnId(null)
+    } catch (e) {
+      alert(t.ed_delete_fail + (e?.response?.data?.detail || String(e)))
+    }
+  }
+
   // ── Shape operations ───────────────────────────────────────────────────────
 
   function addShape(shape) {
@@ -364,33 +394,52 @@ export default function AutoCADEditorPage() {
   async function handleDistribute() {
     setDistributing(true)
     try {
+      // Generate narration first if none exists
+      if (!narrationText) {
+        setDistStatus(t.ed_overlay_gen_narr)
+        await regenerateAutoCADNarration(sessionId)
+        // Poll until done
+        await new Promise((resolve, reject) => {
+          const check = async () => {
+            try {
+              const s = await getAutoCADSession(sessionId)
+              if (s.narration_text) { setNarrationText(s.narration_text); resolve(); return }
+              if (s.status === 'error') { reject(new Error(t.ed_overlay_gen_narr)); return }
+            } catch (e) { reject(e); return }
+            setTimeout(check, 2000)
+          }
+          check()
+        })
+      }
+      setDistStatus(t.ed_overlay_distributing)
       await distributeNarration(sessionId)
       const data = await listFrames(sessionId)
       setFrames(data.map(f => ({ ...f, shapes: tryParse(f.shapes_json) })))
       setDirty(false)
     } catch (e) {
-      alert('AI 分配失败：' + (e?.response?.data?.detail || String(e)))
+      alert(t.ed_distribute_fail + (e?.response?.data?.detail || String(e)))
     } finally {
       setDistributing(false)
+      setDistStatus('')
     }
   }
 
-  // ── Generate video ─────────────────────────────────────────────────────────
+  // ── Generate narrated video ────────────────────────────────────────────────
 
   async function handleGenerateVideo() {
     await doSave()
     setVideoState('generating')
     try {
-      await generateAnnotatedVideo(sessionId)
+      await generateNarratedVideo(sessionId, voice)
       const poll = async () => {
         try {
-          const s = await getAutoCADVideoStatus(sessionId)
+          const s = await getNarratedVideoStatus(sessionId)
           if (s.status === 'ready') { setVideoState('ready'); return }
           if (s.status === 'error') { setVideoState('error'); return }
         } catch (_) {}
         setTimeout(poll, 2000)
       }
-      setTimeout(poll, 1500)
+      setTimeout(poll, 2000)
     } catch { setVideoState('error') }
   }
 
@@ -400,7 +449,7 @@ export default function AutoCADEditorPage() {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
                     height: '100%', color: 'var(--text-s)', fontSize: 14 }}>
-        {frames.length === 0 ? '加载中…' : '此会话暂无截图帧'}
+        {frames.length === 0 ? t.ed_loading : t.ed_no_frames}
       </div>
     )
   }
@@ -412,22 +461,41 @@ export default function AutoCADEditorPage() {
   function clamp01(v) { return Math.min(1, Math.max(0, v)) }
   function clampR(v) { return Math.min(0.45, Math.max(0.008, v)) }
 
+  const loadingMsg = distributing
+    ? (distStatus || t.ed_overlay_ai)
+    : videoState === 'generating'
+      ? t.ed_overlay_video
+      : null
+
   return (
     <div style={s.page}>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+
+      {/* ── Full-screen frosted-glass loading overlay ── */}
+      {loadingMsg && (
+        <div style={s.overlay}>
+          <div style={s.overlayCard}>
+            <div style={s.spinner} />
+            <div style={s.overlayMsg}>{loadingMsg}</div>
+            <div style={s.overlayHint}>{t.ed_overlay_hint}</div>
+          </div>
+        </div>
+      )}
 
       {/* ── Ribbon ── */}
       <header style={s.ribbon}>
         <div style={s.ribLeft}>
           <button style={s.btnBack}
-            onClick={() => { if (dirty) doSave(); navigate('/autocad') }}>
-            ← 返回
+            onClick={() => { if (dirty) doSave(); navigate(backTo) }}>
+            {t.ed_back}
           </button>
-          <span style={s.sessLabel}>Session #{sessionId} 帧编辑</span>
+          <span style={s.sessLabel}>Session #{sessionId} {t.ed_session_label}</span>
           <div style={s.toolGroup}>
             {[
-              ['select',  '选择',  '#a9b1d6'],
-              ['blur',    '虚化',  '#73daca'],
-              ['circle',  '画圈',  '#ff4d4f'],
+              ['select', t.ed_tool_select, '#a9b1d6'],
+              ['blur',   t.ed_tool_blur,   '#73daca'],
+              ['circle', t.ed_tool_circle, '#ff4d4f'],
             ].map(([id, label, color]) => (
               <button key={id}
                 style={{ ...s.toolBtn, ...(tool === id ? { background: color + '22', color, borderColor: color } : {}) }}
@@ -439,20 +507,26 @@ export default function AutoCADEditorPage() {
         </div>
         <div style={s.ribRight}>
           <button style={s.btnAlt} onClick={handleDistribute} disabled={distributing}>
-            {distributing ? '分配中…' : 'AI 分配解说'}
+            {distributing ? (distStatus || t.ed_processing) : t.ed_ai_distribute}
           </button>
           <button style={s.btnSave} onClick={() => doSave()} disabled={saving || !dirty}>
-            {saving ? '保存中…' : dirty ? '● 保存' : '已保存'}
+            {saving ? t.ed_saving : dirty ? t.ed_save : t.ed_saved}
           </button>
+          <select value={voice} onChange={e => setVoice(e.target.value)} style={s.voiceSelect}
+            disabled={videoState === 'generating'}>
+            {['alloy','echo','fable','onyx','nova','shimmer'].map(v =>
+              <option key={v} value={v}>{v}</option>
+            )}
+          </select>
           {videoState === 'ready'
-            ? <a href={`/api/autocad/sessions/${sessionId}/video/download`}
+            ? <a href={`/api/autocad/sessions/${sessionId}/video/narrated/download`}
                 style={{ ...s.btnGenerate, background: '#9ece6a', textDecoration: 'none',
                          display: 'inline-flex', alignItems: 'center' }}>
-                ↓ 下载视频
+                {t.ed_download_video}
               </a>
             : <button style={s.btnGenerate} onClick={handleGenerateVideo}
                 disabled={videoState === 'generating'}>
-                {videoState === 'generating' ? '生成中…' : '生成视频'}
+                {videoState === 'generating' ? t.ed_generating_video : t.ed_gen_voice_video}
               </button>
           }
         </div>
@@ -479,34 +553,63 @@ export default function AutoCADEditorPage() {
 
           {/* Step title */}
           <div style={s.sec}>
-            <div style={s.secLabel}>步骤标题</div>
+            <div style={s.secLabel}>{t.ed_step_title}</div>
             <input style={s.input}
               value={frame.title || ''}
               onChange={e => patchFrame({ title: e.target.value })}
-              placeholder={`步骤 ${idx + 1}`}
+              placeholder={`${t.ed_step_ph} ${idx + 1}`}
             />
           </div>
 
+          {/* Per-frame recorded voice */}
+          {frame.voice_text && (
+            <div style={s.sec}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={s.secLabel}>
+                  {t.ed_voice}
+                  {frame.voice_confidence != null && (
+                    <span style={{ fontSize: 10, color: 'var(--text-s)', fontWeight: 400, marginLeft: 6 }}>
+                      {Math.round(frame.voice_confidence * 100)}% {t.ed_confidence}
+                    </span>
+                  )}
+                </div>
+                <button
+                  style={{ fontSize: 11, padding: '2px 8px', background: '#7aa2f722',
+                           border: '1px solid #7aa2f744', borderRadius: 5,
+                           color: '#7aa2f7', cursor: 'pointer' }}
+                  title={t.ed_fill_narration_title}
+                  onClick={() => patchFrame({ narration: frame.voice_text })}>
+                  {t.ed_fill_narration}
+                </button>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-m)', lineHeight: 1.6,
+                            background: 'var(--surface2,#1e2030)', border: '1px solid var(--border)',
+                            borderRadius: 6, padding: '7px 10px' }}>
+                {frame.voice_text}
+              </div>
+            </div>
+          )}
+
           {/* Narration / description */}
           <div style={{ ...s.sec, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 120 }}>
-            <div style={s.secLabel}>解说词</div>
+            <div style={s.secLabel}>{t.ed_narration}</div>
             <textarea style={s.textarea}
               value={frame.narration || ''}
               onChange={e => patchFrame({ narration: e.target.value })}
-              placeholder="此帧的解说词…"
+              placeholder={t.ed_narration_ph}
             />
           </div>
 
           {/* Blur regions */}
           <div style={s.sec}>
-            <div style={s.secLabel}>虚化区域 ({blurs.length})</div>
+            <div style={s.secLabel}>{t.ed_blur_regions} ({blurs.length})</div>
             {blurs.length === 0
-              ? <p style={s.hint}>切换「虚化」工具后拖拽矩形区域。</p>
+              ? <p style={s.hint}>{t.ed_blur_hint}</p>
               : blurs.map((br, i) => (
                   <div key={br.id} style={s.shapeRow}>
-                    <span style={s.shapeRowLabel}>矩形 {i + 1}</span>
+                    <span style={s.shapeRowLabel}>{t.ed_blur_rect} {i + 1}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={s.sliderName}>强度</span>
+                      <span style={s.sliderName}>{t.ed_intensity}</span>
                       <input type="range" min={1} max={30}
                         value={br.intensity || 10}
                         style={{ width: 72, accentColor: '#73daca' }}
@@ -514,7 +617,7 @@ export default function AutoCADEditorPage() {
                       />
                       <span style={{ ...s.sliderVal, color: '#73daca' }}>{br.intensity || 10}</span>
                     </div>
-                    <button style={s.btnDanger} onClick={() => removeShape(br.id)}>删除</button>
+                    <button style={s.btnDanger} onClick={() => removeShape(br.id)}>{t.ed_delete}</button>
                   </div>
                 ))
             }
@@ -522,9 +625,9 @@ export default function AutoCADEditorPage() {
 
           {/* Click circles */}
           <div style={s.sec}>
-            <div style={s.secLabel}>圆圈标注 ({circles.length})</div>
+            <div style={s.secLabel}>{t.ed_circles} ({circles.length})</div>
             {circles.length === 0
-              ? <p style={s.hint}>切换「画圈」工具后点击图片添加。</p>
+              ? <p style={s.hint}>{t.ed_circle_hint}</p>
               : circles.map(a => {
                   const [cx, cy, r] = a.points || [0.5, 0.5, 0.04]
                   const isSel = selectedAnnId === a.id
@@ -534,18 +637,18 @@ export default function AutoCADEditorPage() {
                       onClick={() => setSelectedAnnId(isSel ? null : a.id)}>
 
                       <div style={s.circleCardHead}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: a.color || '#ff4d4f' }}>点击圈</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: a.color || '#ff4d4f' }}>{t.ed_click_circle}</span>
                         <button style={s.btnDanger}
-                          onClick={e => { e.stopPropagation(); removeShape(a.id) }}>删除</button>
+                          onClick={e => { e.stopPropagation(); removeShape(a.id) }}>{t.ed_delete}</button>
                       </div>
 
                       {/* X / Y / Radius sliders */}
                       {[
-                        ['中心 X（相对画面宽）', pct(cx), 0, 100, 0.1,
+                        [t.ed_cx, pct(cx), 0, 100, 0.1,
                           v => patchShape(a.id, { points: [clamp01(v / 100), cy, r] })],
-                        ['中心 Y（相对画面高）', pct(cy), 0, 100, 0.1,
+                        [t.ed_cy, pct(cy), 0, 100, 0.1,
                           v => patchShape(a.id, { points: [cx, clamp01(v / 100), r] })],
-                        ['半径（相对短边）',     pct(r),  0.8, 45, 0.1,
+                        [t.ed_radius, pct(r), 0.8, 45, 0.1,
                           v => patchShape(a.id, { points: [cx, cy, clampR(v / 100)] })],
                       ].map(([label, val, min, max, step, onChange]) => (
                         <div key={label} style={{ marginBottom: 8 }}>
@@ -565,14 +668,14 @@ export default function AutoCADEditorPage() {
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
                         <input type="text"
                           value={a.text || ''}
-                          placeholder="标签文字"
+                          placeholder={t.ed_label_text}
                           style={{ ...s.input, flex: 1, fontSize: 12 }}
                           onClick={e => e.stopPropagation()}
                           onChange={e => patchShape(a.id, { text: e.target.value })}
                         />
                         <input type="color"
                           value={a.color || '#ff4d4f'}
-                          title="圆圈颜色"
+                          title={t.ed_circle_color}
                           style={{ width: 28, height: 28, padding: 2, border: '1px solid var(--border)',
                                    borderRadius: 4, background: 'none', cursor: 'pointer', flexShrink: 0 }}
                           onClick={e => e.stopPropagation()}
@@ -582,10 +685,10 @@ export default function AutoCADEditorPage() {
 
                       {/* Font size */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={s.sliderName}>字号</span>
+                        <span style={s.sliderName}>{t.ed_font_size}</span>
                         <input type="number" min={0} max={96} step={1}
                           value={a.label_font_size_px || 0}
-                          title="0 = 自动随圆圈大小"
+                          title={t.ed_font_auto_title}
                           style={{ width: 52, ...s.input, padding: '3px 6px', fontSize: 12 }}
                           onClick={e => e.stopPropagation()}
                           onChange={e => {
@@ -596,7 +699,7 @@ export default function AutoCADEditorPage() {
                             })
                           }}
                         />
-                        <span style={s.sliderName}>px（0=自动）</span>
+                        <span style={s.sliderName}>{t.ed_font_auto}</span>
                       </div>
                     </div>
                   )
@@ -604,7 +707,7 @@ export default function AutoCADEditorPage() {
             }
           </div>
 
-          <div style={s.frameCounter}>{idx + 1} / {frames.length} 帧</div>
+          <div style={s.frameCounter}>{idx + 1} / {frames.length} {t.ed_frames_count}</div>
         </div>
       </div>
 
@@ -618,10 +721,16 @@ export default function AutoCADEditorPage() {
               src={`/api/autocad/sessions/${sessionId}/events/${f.event_id}/image`}
               style={s.thumbImg} alt="" loading="lazy"
             />
-            <div style={s.thumbLabel}>{f.title || `步骤 ${i + 1}`}</div>
+            <div style={s.thumbLabel}>{f.title || `${t.ed_frame_label} ${i + 1}`}</div>
             {(f.shapes?.length ?? 0) > 0 && (
               <div style={s.thumbBadge}>{f.shapes.length}</div>
             )}
+            <button
+              style={s.thumbDel}
+              title={t.ed_delete_frame}
+              onClick={e => { e.stopPropagation(); handleDeleteFrame(i) }}>
+              ✕
+            </button>
           </div>
         ))}
       </div>
@@ -674,6 +783,10 @@ const s = {
   btnGenerate: {
     padding: '6px 14px', background: '#bb9af7', border: 'none',
     borderRadius: 6, color: '#1a1b2e', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+  },
+  voiceSelect: {
+    padding: '5px 8px', background: 'var(--surface2)', border: '1px solid var(--border)',
+    borderRadius: 6, color: 'var(--text)', fontSize: 12, cursor: 'pointer',
   },
 
   // main
@@ -762,10 +875,51 @@ const s = {
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   thumbBadge: {
-    position: 'absolute', top: 3, right: 3,
-    background: '#f7768e', color: '#1a1b2e',
+    position: 'absolute', top: 3, left: 3,
+    background: '#7aa2f7', color: '#1a1b2e',
     borderRadius: '50%', width: 16, height: 16,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontSize: 10, fontWeight: 700,
+  },
+  thumbDel: {
+    position: 'absolute', top: 3, right: 3,
+    background: '#f7768e', border: 'none',
+    color: '#1a1b2e', borderRadius: '50%',
+    width: 16, height: 16,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize: 10, fontWeight: 700, cursor: 'pointer',
+    lineHeight: 1, padding: 0,
+  },
+
+  // ── Frosted-glass overlay ──────────────────────────────────────────────────
+  overlay: {
+    position: 'fixed', inset: 0, zIndex: 999,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    background: 'rgba(15, 16, 30, 0.55)',
+  },
+  overlayCard: {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+    padding: '36px 48px',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 20,
+    boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
+  },
+  spinner: {
+    width: 40, height: 40,
+    border: '3px solid rgba(255,255,255,0.12)',
+    borderTop: '3px solid #bb9af7',
+    borderRadius: '50%',
+    animation: 'spin 0.85s linear infinite',
+  },
+  overlayMsg: {
+    fontSize: 16, fontWeight: 600,
+    color: 'var(--text, #cdd6f4)',
+    letterSpacing: 0.3,
+  },
+  overlayHint: {
+    fontSize: 12, color: 'rgba(205,214,244,0.5)',
   },
 }

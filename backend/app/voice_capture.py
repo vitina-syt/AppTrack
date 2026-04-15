@@ -1,11 +1,11 @@
 """
-Voice Capture — microphone recording with Whisper transcription.
+Voice Capture — microphone recording with Azure OpenAI Whisper transcription.
 
-Continuously captures microphone audio in chunks, detects silence,
-and transcribes each speech segment via:
-  1. openai-whisper  (local model, preferred)
-  2. OpenAI Whisper API (if OPENAI_API_KEY is set and local model unavailable)
-  3. No-op fallback  (saves audio only)
+Captures microphone audio in chunks, detects silence, and transcribes each
+speech segment via the Azure OpenAI Whisper API (auto language detection).
+
+Requires:
+    AZURE_WHISPER_API_KEY  environment variable with the Azure API key.
 
 Public API
 ----------
@@ -14,8 +14,8 @@ Public API
     vc.stop()
     segments = vc.drain()       # list of all transcribed segments
 """
+import collections
 import threading
-import time
 import logging
 import queue
 import os
@@ -26,6 +26,13 @@ from pathlib import Path
 
 logger = logging.getLogger("app.voice_capture")
 
+# Azure OpenAI Whisper endpoint
+_AZURE_WHISPER_ENDPOINT = (
+    "https://oai-seaidev-concept-advisor.cognitiveservices.azure.com"
+    "/openai/deployments/whisper/audio/transcriptions"
+    "?api-version=2024-06-01"
+)
+
 # ── optional pyaudio ─────────────────────────────────────────────────────────
 _PYAUDIO = False
 try:
@@ -34,16 +41,7 @@ try:
 except ImportError:
     logger.info("pyaudio not available — voice capture disabled")
 
-# ── optional whisper (local) ─────────────────────────────────────────────────
-_WHISPER_LOCAL = False
-_whisper_model = None
-try:
-    import whisper as _whisper_lib
-    _WHISPER_LOCAL = True
-except ImportError:
-    pass
-
-# ── optional numpy (needed by whisper) ──────────────────────────────────────
+# ── optional numpy (for RMS silence detection + audio normalisation) ─────────
 _NUMPY = False
 try:
     import numpy as np
@@ -56,103 +54,96 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _load_whisper(model_size: str = "base"):
-    """Lazy-load Whisper model (called once on first use)."""
-    global _whisper_model
-    if _whisper_model is None and _WHISPER_LOCAL:
-        logger.info("Loading Whisper model '%s' …", model_size)
-        _whisper_model = _whisper_lib.load_model(model_size)
-        logger.info("Whisper model loaded")
-    return _whisper_model
+def _normalize_audio(raw: bytes, target_rms: float = 0.08) -> bytes:
+    """Normalise PCM audio to *target_rms* so quiet speech is amplified before
+    Whisper sees it.  Applies a soft gain cap (10×) to avoid clipping noise."""
+    if not _NUMPY or not raw:
+        return raw
+    import numpy as np
+    pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    current_rms = float(np.sqrt(np.mean(pcm ** 2)))
+    if current_rms < 1e-6:
+        return raw
+    gain = min(target_rms / current_rms, 10.0)
+    normalised = np.clip(pcm * gain, -1.0, 1.0)
+    return (normalised * 32767).astype(np.int16).tobytes()
 
 
-def _transcribe_file(wav_path: str, model_size: str = "base") -> tuple[str, float]:
+def _transcribe_file(wav_path: str) -> tuple[str, float]:
+    """Transcribe a WAV file via Azure OpenAI Whisper API.
+
+    Returns (text, confidence).  Language is auto-detected by the service.
+    Requires AZURE_WHISPER_API_KEY environment variable.
     """
-    Transcribe an audio file. Returns (text, confidence).
-    Tries local Whisper, then OpenAI API, then returns ("", 0.0).
-    """
-    # Local Whisper
-    if _WHISPER_LOCAL and _NUMPY:
-        try:
-            model = _load_whisper(model_size)
-            result = model.transcribe(wav_path, language=None, fp16=False)
-            text = result.get("text", "").strip()
-            # Average log-prob as a rough confidence proxy
-            segs = result.get("segments", [])
-            if segs:
-                avg_lp = sum(s.get("avg_logprob", -1.0) for s in segs) / len(segs)
-                confidence = max(0.0, min(1.0, (avg_lp + 1.0)))
-            else:
-                confidence = 0.5
-            return text, confidence
-        except Exception as exc:
-            logger.warning("Local Whisper failed: %s", exc)
+    azure_key = os.environ.get("AZURE_WHISPER_API_KEY", "")
+    if not azure_key:
+        logger.warning(
+            "AZURE_WHISPER_API_KEY not set — voice transcription disabled. "
+            "Add it to your .env file."
+        )
+        return "", 0.0
 
-    # OpenAI API fallback
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if api_key:
-        try:
-            import httpx
-            with open(wav_path, "rb") as f:
-                resp = httpx.post(
-                    "https://api.openai.com/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    files={"file": ("audio.wav", f, "audio/wav")},
-                    data={"model": "whisper-1"},
-                    timeout=30,
-                )
-            resp.raise_for_status()
-            return resp.json().get("text", "").strip(), 0.8
-        except Exception as exc:
-            logger.warning("OpenAI Whisper API failed: %s", exc)
-
-    return "", 0.0
+    try:
+        import httpx
+        with open(wav_path, "rb") as f:
+            resp = httpx.post(
+                _AZURE_WHISPER_ENDPOINT,
+                headers={"api-key": azure_key},
+                files={"file": ("audio.wav", f, "audio/wav")},
+                timeout=60,
+            )
+        resp.raise_for_status()
+        text = resp.json().get("text", "").strip()
+        logger.debug("Azure Whisper: text=%r", text[:80])
+        return text, 0.95
+    except Exception as exc:
+        logger.warning("Azure Whisper API failed: %s", exc)
+        return "", 0.0
 
 
 # ── VoiceCapture ─────────────────────────────────────────────────────────────
 
 class VoiceCapture:
     """
-    Capture microphone audio and produce transcribed text segments.
+    Capture microphone audio and transcribe via Azure OpenAI Whisper.
 
     Parameters
     ----------
-    sample_rate     : int   — audio sample rate (Hz)
-    chunk_frames    : int   — frames per pyaudio read call
     silence_thresh  : float — RMS below this is considered silence (0-1 scale)
     silence_secs    : float — seconds of silence to end a speech segment
     max_segment_secs: float — force-flush segment after this duration
-    whisper_model   : str   — Whisper model size (tiny/base/small/medium/large)
     audio_dir       : Path  — where to save raw WAV segments (None = temp dir)
     """
 
-    RATE         = 16000
-    CHUNK        = 1024
-    CHANNELS     = 1
-    FORMAT       = None  # set in __init__ if pyaudio available
+    RATE     = 16000
+    CHUNK    = 1024
+    CHANNELS = 1
+    FORMAT   = None  # set in __init__ if pyaudio available
 
     def __init__(
         self,
         silence_thresh: float = 0.01,
         silence_secs: float = 1.5,
         max_segment_secs: float = 30.0,
-        whisper_model: str = "base",
         audio_dir: Optional[Path] = None,
     ):
-        self.silence_thresh  = silence_thresh
-        self.silence_secs    = silence_secs
+        self.silence_thresh   = silence_thresh
+        self.silence_secs     = silence_secs
         self.max_segment_secs = max_segment_secs
-        self.whisper_model   = whisper_model
-        self.audio_dir       = audio_dir
+        self.audio_dir        = audio_dir
 
         self._lock            = threading.Lock()
         self._running         = False
         self._capture_thread: Optional[threading.Thread] = None
         self._transcribe_thread: Optional[threading.Thread] = None
-        self._audio_queue: queue.Queue = queue.Queue()   # raw audio chunks
-        self._segment_queue: queue.Queue = queue.Queue() # completed wav paths
+        self._segment_queue: queue.Queue = queue.Queue()
         self._segments: List[dict] = []
         self._callback: Optional[Callable] = None
+
+        # Rolling PCM buffer — keeps the last 60 s of raw audio for per-frame snapshots
+        self._pcm_buffer: collections.deque = collections.deque()
+        self._pcm_lock   = threading.Lock()
+        self._pcm_max_chunks = int(60 * self.RATE / self.CHUNK)
 
         if _PYAUDIO:
             self.FORMAT = pyaudio.paInt16
@@ -185,7 +176,6 @@ class VoiceCapture:
     def stop(self) -> None:
         with self._lock:
             self._running = False
-        # Wake up transcribe loop
         self._segment_queue.put(None)
         if self._capture_thread:
             self._capture_thread.join(timeout=5)
@@ -197,6 +187,29 @@ class VoiceCapture:
         """Return all transcribed segments collected so far."""
         with self._lock:
             return list(self._segments)
+
+    def snapshot_pcm(self, window_secs: float = 15.0) -> bytes:
+        """Return the last *window_secs* of raw PCM audio (16 kHz, mono, int16).
+
+        Called at screenshot-trigger time for per-frame voice alignment.
+        Returns b'' if buffer is empty or audio is pure silence.
+        """
+        frames_needed = max(1, int(window_secs * self.RATE / self.CHUNK))
+        with self._pcm_lock:
+            recent = list(self._pcm_buffer)[-frames_needed:]
+        if not recent:
+            return b""
+        raw = b"".join(recent)
+        if _NUMPY:
+            import numpy as np
+            pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            n_chunks = len(pcm) // self.CHUNK
+            if n_chunks > 0:
+                chunks = pcm[:n_chunks * self.CHUNK].reshape(n_chunks, self.CHUNK)
+                max_chunk_rms = float(np.max(np.sqrt(np.mean(chunks ** 2, axis=1))))
+                if max_chunk_rms < self.silence_thresh:
+                    return b""
+        return raw
 
     @property
     def running(self) -> bool:
@@ -232,12 +245,16 @@ class VoiceCapture:
                 data = stream.read(self.CHUNK, exception_on_overflow=False)
                 frames_in_segment.append(data)
 
-                # RMS energy check
+                with self._pcm_lock:
+                    self._pcm_buffer.append(data)
+                    if len(self._pcm_buffer) > self._pcm_max_chunks:
+                        self._pcm_buffer.popleft()
+
                 if _NUMPY:
                     pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
                     rms = float(np.sqrt(np.mean(pcm ** 2)))
                 else:
-                    rms = 0.05  # assume speaking if no numpy
+                    rms = 0.05
 
                 is_silent = rms < self.silence_thresh
 
@@ -261,7 +278,6 @@ class VoiceCapture:
                     silent_frames = 0
                     in_speech = False
 
-            # Flush remainder
             if in_speech and frames_in_segment:
                 self._flush_segment(frames_in_segment, seg_start_ts)
 
@@ -271,8 +287,10 @@ class VoiceCapture:
             pa.terminate()
 
     def _flush_segment(self, frames: List[bytes], start_ts: str) -> None:
-        """Write audio frames to a WAV file and enqueue for transcription."""
+        """Normalise and write audio frames to a WAV file, then enqueue for transcription."""
         import wave
+
+        raw = _normalize_audio(b"".join(frames))
 
         out_dir = self.audio_dir or Path(tempfile.gettempdir())
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -281,9 +299,9 @@ class VoiceCapture:
 
         with wave.open(str(wav_path), "wb") as wf:
             wf.setnchannels(self.CHANNELS)
-            wf.setsampwidth(2)  # paInt16 = 2 bytes
+            wf.setsampwidth(2)
             wf.setframerate(self.RATE)
-            wf.writeframes(b"".join(frames))
+            wf.writeframes(raw)
 
         self._segment_queue.put((str(wav_path), start_ts))
 
@@ -296,7 +314,7 @@ class VoiceCapture:
                 break
             wav_path, start_ts = item
             try:
-                text, confidence = _transcribe_file(wav_path, self.whisper_model)
+                text, confidence = _transcribe_file(wav_path)
                 if text:
                     seg = {
                         "event_type": "voice_segment",
@@ -314,7 +332,6 @@ class VoiceCapture:
             except Exception as exc:
                 logger.warning("Transcription failed for %s: %s", wav_path, exc)
             finally:
-                # Clean up temp WAV
                 try:
                     Path(wav_path).unlink(missing_ok=True)
                 except Exception:
