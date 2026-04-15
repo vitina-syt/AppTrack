@@ -10,9 +10,12 @@ mss==9.0.2
 pynput==1.7.7
 Pillow==11.2.1
 
-# ── CreoScribe additions ──────────────────────────────────────────────────────
-# HTTP client (avatar export + Whisper API fallback)
+# HTTP clients
+requests>=2.32.0
 httpx==0.28.1
+
+# Environment variables
+python-dotenv>=1.0.0
 
 # Anthropic SDK (Claude narration generation)
 anthropic>=0.40.0
