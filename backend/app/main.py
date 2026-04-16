@@ -103,22 +103,38 @@ else:
     # Project root is three levels up from backend/app/main.py
     _FRONTEND_DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
 
+logging.info("Frontend dist path: %s (exists=%s)", _FRONTEND_DIST, _FRONTEND_DIST.exists())
+
 if _FRONTEND_DIST.exists():
-    # Mount the /assets sub-directory (JS/CSS chunks) as a static file mount
-    # so they are served with correct Content-Type and caching headers.
     _assets_dir = _FRONTEND_DIST / "assets"
     if _assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="frontend-assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def serve_spa(full_path: str):
-        """
-        Catch-all: serve existing static files (e.g. favicon.ico),
-        fall back to index.html for all SPA routes (including root "/").
-        """
-        # full_path is "" for GET /  — skip is_file check (it's a dir)
         if full_path:
             candidate = _FRONTEND_DIST / full_path
             if candidate.is_file():
                 return FileResponse(str(candidate))
         return FileResponse(str(_FRONTEND_DIST / "index.html"))
+
+else:
+    # Frontend not built yet — return a helpful message instead of 404
+    from fastapi.responses import HTMLResponse
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def frontend_not_found(full_path: str):
+        return HTMLResponse(
+            content=f"""
+            <html><body style="font-family:sans-serif;padding:40px;background:#1a1b2e;color:#cdd6f4">
+            <h2 style="color:#f7768e">Frontend not found</h2>
+            <p>Expected path: <code style="color:#e0af68">{_FRONTEND_DIST}</code></p>
+            <p>Run the following command and restart the service:</p>
+            <pre style="background:#24283b;padding:16px;border-radius:8px">cd frontend
+npm install
+npm run build</pre>
+            <p>API is running: <a href="/docs" style="color:#7aa2f7">/docs</a></p>
+            </body></html>
+            """,
+            status_code=503,
+        )
