@@ -58,8 +58,8 @@ if (Test-Path $EnvFile) {
 # Remove existing service if present
 # ---------------------------------------------------------------------------
 
-$statusOutput = & nssm status $ServiceName 2>&1
-if ($LASTEXITCODE -eq 0) {
+$existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($existingService) {
     Write-Host "Stopping and removing existing '$ServiceName' service..."
     & nssm stop   $ServiceName 2>&1 | Out-Null
     & nssm remove $ServiceName confirm 2>&1 | Out-Null
