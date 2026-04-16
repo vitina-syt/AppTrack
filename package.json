@@ -25,6 +25,12 @@
       "electron/**/*",
       "!**/node_modules/**"
     ],
+    "extraFiles": [
+      {
+        "from": "electron/config.json",
+        "to": "resources/electron/config.json"
+      }
+    ],
     "extraResources": [
       {
         "from": "frontend/dist",
