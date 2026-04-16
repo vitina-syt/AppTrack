@@ -15,6 +15,9 @@ const defaults = {
   pollInterval: 5,
   ignoredApps: ['explorer.exe', 'SearchHost.exe', 'ShellExperienceHost.exe'],
   avatarEnabled: false,   // 数字人功能开关，默认关闭
+  // Server sync
+  serverUrl: '',          // central server URL, e.g. https://apptrack.example.com
+  syncAuto: false,        // auto-sync after every recording stops
 }
 
 export const useSettingsStore = create((set, get) => {
@@ -26,6 +29,8 @@ export const useSettingsStore = create((set, get) => {
     ...(p?.pollInterval >= 1 ? { pollInterval: p.pollInterval } : {}),
     ...(Array.isArray(p?.ignoredApps) ? { ignoredApps: p.ignoredApps } : {}),
     ...(typeof p?.avatarEnabled === 'boolean' ? { avatarEnabled: p.avatarEnabled } : {}),
+    ...(typeof p?.serverUrl === 'string'      ? { serverUrl: p.serverUrl }         : {}),
+    ...(typeof p?.syncAuto  === 'boolean'     ? { syncAuto: p.syncAuto }           : {}),
   }
 
   if (typeof document !== 'undefined') {
@@ -42,6 +47,8 @@ export const useSettingsStore = create((set, get) => {
     setPollInterval: (pollInterval) => { set({ pollInterval }); save({ ...get(), pollInterval }) },
     setIgnoredApps: (ignoredApps) => { set({ ignoredApps }); save({ ...get(), ignoredApps }) },
     setAvatarEnabled: (avatarEnabled) => { set({ avatarEnabled }); save({ ...get(), avatarEnabled }) },
+    setServerUrl: (serverUrl) => { set({ serverUrl }); save({ ...get(), serverUrl }) },
+    setSyncAuto:  (syncAuto)  => { set({ syncAuto });  save({ ...get(), syncAuto })  },
     reset: () => { set({ ...defaults }); save({ ...defaults }); document.documentElement.setAttribute('data-theme', defaults.theme) },
   }
 })

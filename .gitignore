@@ -18,3 +18,24 @@ backend/data/autocad_screenshots/
 # 前端
 frontend/node_modules/
 frontend/dist/
+
+# PyInstaller 输出
+backend/dist/
+backend/build/
+backend/web/
+backend/*.spec.bak
+
+# 本地采集端
+agent/venv/
+agent/.venv/
+agent/web/
+agent/dist/
+agent/build/
+
+# Electron
+node_modules/
+release/
+electron/assets/
+
+# 其他
+*.spec~

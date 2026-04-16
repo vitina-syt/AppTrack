@@ -16,6 +16,7 @@ import {
   getAutoCADSession, regenerateAutoCADNarration,
   generateAutoCADVideo, getAutoCADVideoStatus,
   micCheck,
+  syncPushSession,
 } from '../api'
 import { useSettingsStore } from '../store/settingsStore'
 import { useT } from '../hooks/useT'
@@ -50,7 +51,9 @@ const ANT_THEME = {
 
 export default function RecordPage() {
   const navigate = useNavigate()
-  const language = useSettingsStore(s => s.language)
+  const language  = useSettingsStore(s => s.language)
+  const serverUrl = useSettingsStore(s => s.serverUrl)
+  const syncAuto  = useSettingsStore(s => s.syncAuto)
   const t = useT()
 
   // wizard
@@ -85,6 +88,10 @@ export default function RecordPage() {
   // step 4: video
   const [videoStatus, setVideoStatus] = useState(null)  // null|generating|ready|error
   const [videoDiag,   setVideoDiag]   = useState(null)
+
+  // sync
+  const [syncStatus, setSyncStatus] = useState(null)  // null|syncing|done|error
+  const [syncMsg,    setSyncMsg]    = useState('')
 
   const pollRef  = useRef(null)
   const isAcad   = targetExe.toLowerCase().includes('acad')
@@ -183,6 +190,14 @@ export default function RecordPage() {
       setSession(sess)
       setAgentStatus(prev => ({ ...prev, running: false }))
       setStep(3)
+      // Auto-sync if configured
+      if (syncAuto && serverUrl && sessionId) {
+        setSyncStatus('syncing')
+        setSyncMsg('')
+        syncPushSession(sessionId, serverUrl)
+          .then(r => { setSyncStatus('done'); setSyncMsg(`已自动同步，服务器会话 #${r.server_session_id}`) })
+          .catch(e => { setSyncStatus('error'); setSyncMsg(e?.response?.data?.detail || String(e)) })
+      }
     } catch (e) {
       alert(e?.response?.data?.detail || String(e))
     } finally {
@@ -240,6 +255,20 @@ export default function RecordPage() {
       if (s.status === 'ready') setVideoStatus('ready')
       if (s.status === 'error') setVideoStatus('error')
     } catch (_) {}
+  }
+
+  async function handleSync() {
+    if (!sessionId || !serverUrl) return
+    setSyncStatus('syncing')
+    setSyncMsg('')
+    try {
+      const result = await syncPushSession(sessionId, serverUrl)
+      setSyncStatus('done')
+      setSyncMsg(`已同步至服务器，服务器会话 #${result.server_session_id}`)
+    } catch (e) {
+      setSyncStatus('error')
+      setSyncMsg(e?.response?.data?.detail || String(e))
+    }
   }
 
   // ── Step navigation ───────────────────────────────────────────────────────
@@ -318,6 +347,9 @@ export default function RecordPage() {
             sessionId={sessionId} videoStatus={videoStatus} videoDiag={videoDiag}
             onGenerate={handleGenerateVideo} onRefresh={handleRefreshVideoStatus}
             onBack={() => goTo(3)}
+            serverUrl={serverUrl}
+            syncStatus={syncStatus} syncMsg={syncMsg}
+            onSync={handleSync}
           />
         )}
       </div>
@@ -735,12 +767,52 @@ function StepEdit({ sessionId, onOpenEditor, onBack, onNext }) {
 
 // ── Step 4: Generate Video ────────────────────────────────────────────────────
 
-function StepVideo({ sessionId, videoStatus, videoDiag, onGenerate, onRefresh, onBack }) {
+function StepVideo({ sessionId, videoStatus, videoDiag, onGenerate, onRefresh, onBack,
+                     serverUrl, syncStatus, syncMsg, onSync }) {
   const t = useT()
+
+  const syncBtnLabel = syncStatus === 'syncing' ? '同步中…'
+                     : syncStatus === 'done'    ? '重新同步'
+                     : '同步至服务器'
+
   return (
     <div>
       <h2 style={s.stepTitle}>{t.rec_vid_title}</h2>
       <p style={s.stepDesc}>{t.rec_vid_desc}</p>
+
+      {/* ── Server Sync card ── */}
+      <div style={s.card}>
+        <div style={s.cardTitle}>服务器同步</div>
+        {!serverUrl ? (
+          <p style={{ fontSize: 13, color: 'var(--text-s)', margin: 0 }}>
+            未配置服务器地址。请前往 <strong>设置</strong> 页面填写服务器 URL。
+          </p>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--text-s)', margin: '0 0 12px', lineHeight: 1.6 }}>
+              将本次录制会话（截图、事件、narration）打包上传至：
+              <code style={{ color: 'var(--text)', marginLeft: 4 }}>{serverUrl}</code>
+            </p>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                style={{
+                  ...s.btnPrimary,
+                  background: syncStatus === 'done' ? '#9ece6a' : '#7aa2f7',
+                  opacity: syncStatus === 'syncing' ? 0.6 : 1,
+                }}
+                onClick={onSync}
+                disabled={syncStatus === 'syncing' || !sessionId}>
+                {syncBtnLabel}
+              </button>
+              {syncMsg && (
+                <span style={{ fontSize: 12, color: syncStatus === 'error' ? '#f7768e' : '#9ece6a' }}>
+                  {syncMsg}
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
 
       <div style={s.card}>
         <div style={s.cardTitle}>{t.rec_vid_compose}</div>

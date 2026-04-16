@@ -48,3 +48,10 @@ export const micCheck = (durationMs = 2000) =>
 // ── Gallery ───────────────────────────────────────────────────────────────────
 export const getGallery         = ()    => api.get('/gallery').then(r => r.data)
 export const deleteGalleryItem  = (id)  => api.delete(`/gallery/${id}`).then(r => r.data)
+
+// ── Sync ──────────────────────────────────────────────────────────────────────
+export const syncPushSession  = (sessionId, serverUrl) =>
+  api.post(`/sync/push/${sessionId}?server_url=${encodeURIComponent(serverUrl)}`, null, { timeout: 120000 }).then(r => r.data)
+
+export const syncGetStatus = (sessionId) =>
+  api.get(`/sync/status/${sessionId}`).then(r => r.data)

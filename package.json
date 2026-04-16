@@ -1,0 +1,71 @@
+{
+  "name": "apptrack",
+  "version": "0.1.0",
+  "description": "AppTrack — CAD Operation Recording & Tutorial Video Generation",
+  "author": "AppTrack Team",
+  "license": "MIT",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "npm run frontend:build && electron .",
+    "start:norebuild": "electron .",
+    "frontend:build": "cd frontend && npm install && npm run build",
+    "pack": "npm run frontend:build && electron-builder --dir",
+    "dist": "npm run frontend:build && electron-builder",
+    "dist:win": "npm run frontend:build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.apptrack.desktop",
+    "productName": "AppTrack",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "!**/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "frontend/dist",
+        "to": "frontend/dist",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!venv/**/*",
+          "!.venv/**/*",
+          "!**/__pycache__/**/*",
+          "!**/*.pyc",
+          "!data/**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "electron/assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "electron/assets/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "electron/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AppTrack"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  }
+}
