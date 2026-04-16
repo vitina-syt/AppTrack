@@ -9,9 +9,11 @@
     "start": "npm run frontend:build && electron .",
     "start:norebuild": "electron .",
     "frontend:build": "cd frontend && npm install && npm run build",
+    "backend:bundle": "cd backend && pip install pyinstaller && pyinstaller apptrack_backend.spec --clean",
     "pack": "npm run frontend:build && electron-builder --dir",
     "dist": "npm run frontend:build && electron-builder",
-    "dist:win": "npm run frontend:build && electron-builder --win"
+    "dist:win": "npm run frontend:build && electron-builder --win",
+    "dist:full": "npm run frontend:build && npm run backend:bundle && electron-builder --win"
   },
   "build": {
     "appId": "com.apptrack.desktop",
@@ -38,7 +40,8 @@
           "!.venv/**/*",
           "!**/__pycache__/**/*",
           "!**/*.pyc",
-          "!data/**/*"
+          "!data/**/*",
+          "!build/**/*"
         ]
       }
     ],

@@ -44,7 +44,20 @@ def _load_dotenv():
 _load_dotenv()
 
 from app.database import init_db
-from app.api.routes import autocad_routes, editor_routes, gallery_routes, util_routes, sync_routes
+from app.api.routes import editor_routes, gallery_routes, sync_routes
+
+# Recording routes depend on Windows-only packages (pywin32, mss, pynput).
+# On a Linux server these imports are skipped gracefully — the server only
+# needs gallery / editor / sync functionality.
+try:
+    from app.api.routes import autocad_routes as _autocad_routes
+    from app.api.routes import util_routes    as _util_routes
+    _RECORDING_AVAILABLE = True
+except Exception as _e:
+    _autocad_routes = None   # type: ignore
+    _util_routes    = None   # type: ignore
+    _RECORDING_AVAILABLE = False
+    logging.warning("Recording routes unavailable (running in server mode): %s", _e)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -71,10 +84,12 @@ app.add_middleware(
 )
 
 # ── API routers (must be registered BEFORE the SPA catch-all) ─────────────────
-app.include_router(autocad_routes.router)
+if _RECORDING_AVAILABLE:
+    app.include_router(_autocad_routes.router)
+    app.include_router(_util_routes.router)
+
 app.include_router(editor_routes.router)
 app.include_router(gallery_routes.router)
-app.include_router(util_routes.router)
 app.include_router(sync_routes.router)
 
 

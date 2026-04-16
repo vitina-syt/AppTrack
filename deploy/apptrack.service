@@ -1,0 +1,26 @@
+[Unit]
+Description=AppTrack Backend Server
+After=network.target
+
+[Service]
+Type=simple
+# ── 修改为你服务器上的实际路径 ────────────────────────────────────────────────
+User=ubuntu
+WorkingDirectory=/home/ubuntu/AppTrack/backend
+ExecStart=/home/ubuntu/AppTrack/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2
+# ─────────────────────────────────────────────────────────────────────────────
+
+Restart=always
+RestartSec=5
+
+# 把 frontend/dist 路径告诉后端
+Environment="APPTRACK_FRONTEND_DIST=/home/ubuntu/AppTrack/frontend/dist"
+# 从 .env 文件读取 API Key
+EnvironmentFile=-/home/ubuntu/AppTrack/backend/.env
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=apptrack
+
+[Install]
+WantedBy=multi-user.target

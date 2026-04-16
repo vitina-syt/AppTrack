@@ -16,32 +16,12 @@ let mainWindow = null
 
 // ── Python executable resolution ──────────────────────────────────────────────
 
-function getPythonPath() {
-  if (app.isPackaged) {
-    // In a packaged build, look for a bundled Python alongside the backend.
-    const candidates = [
-      path.join(process.resourcesPath, 'python', 'python.exe'),
-      path.join(process.resourcesPath, 'python', 'python'),
-    ]
-    for (const p of candidates) {
-      if (fs.existsSync(p)) return p
-    }
-  }
-
-  // Development: prefer the venv Python
-  const venvCandidates = [
-    path.join(__dirname, '..', 'backend', 'venv', 'Scripts', 'python.exe'),
-    path.join(__dirname, '..', 'backend', 'venv', 'bin', 'python'),
-    path.join(__dirname, '..', 'backend', '.venv', 'Scripts', 'python.exe'),
-    path.join(__dirname, '..', 'backend', '.venv', 'bin', 'python'),
-  ]
-  for (const p of venvCandidates) {
-    if (fs.existsSync(p)) return p
-  }
-
-  // Fallback: system Python
-  return process.platform === 'win32' ? 'python' : 'python3'
-}
+// ── Backend launch strategy ────────────────────────────────────────────────────
+// Priority:
+//   1. PyInstaller bundle  → backend/dist/apptrack_backend/apptrack_backend.exe
+//      (zero Python install needed on user machine)
+//   2. Venv Python         → backend/venv/Scripts/python.exe  (dev / CI)
+//   3. System Python       → python / python3
 
 function getBackendDir() {
   return app.isPackaged
@@ -55,41 +35,67 @@ function getFrontendDist() {
     : path.join(__dirname, '..', 'frontend', 'dist')
 }
 
+/**
+ * Returns { cmd, args, cwd } for spawning the backend process.
+ * Prefers the PyInstaller exe, falls back to uvicorn via Python.
+ */
+function resolveBackendLaunch() {
+  const frontendDist = getFrontendDist()
+  const backendDir   = getBackendDir()
+
+  // ── Option 1: PyInstaller exe ──────────────────────────────────────────────
+  const pyiExe = path.join(backendDir, 'dist', 'apptrack_backend', 'apptrack_backend.exe')
+  if (fs.existsSync(pyiExe)) {
+    return {
+      cmd:  pyiExe,
+      args: ['--port', String(BACKEND_PORT), '--frontend-dist', frontendDist],
+      cwd:  backendDir,
+      env:  { ...process.env, PYTHONUNBUFFERED: '1' },
+    }
+  }
+
+  // ── Option 2: venv Python ──────────────────────────────────────────────────
+  const venvCandidates = [
+    path.join(backendDir, 'venv',  'Scripts', 'python.exe'),
+    path.join(backendDir, 'venv',  'bin',     'python'),
+    path.join(backendDir, '.venv', 'Scripts', 'python.exe'),
+    path.join(backendDir, '.venv', 'bin',     'python'),
+  ]
+  const pythonPath = venvCandidates.find(p => fs.existsSync(p))
+    ?? (process.platform === 'win32' ? 'python' : 'python3')
+
+  return {
+    cmd:  pythonPath,
+    args: ['-m', 'uvicorn', 'app.main:app',
+           '--host', '127.0.0.1',
+           '--port', String(BACKEND_PORT),
+           '--log-level', 'info'],
+    cwd:  backendDir,
+    env:  {
+      ...process.env,
+      PYTHONPATH:             backendDir,
+      APPTRACK_FRONTEND_DIST: frontendDist,
+      PYTHONUNBUFFERED:       '1',
+    },
+  }
+}
+
 // ── Start Python backend ───────────────────────────────────────────────────────
 
 function startPythonBackend() {
-  const pythonPath = getPythonPath()
-  const backendDir = getBackendDir()
-  const frontendDist = getFrontendDist()
+  const { cmd, args, cwd, env } = resolveBackendLaunch()
 
-  console.log('[Electron] Python    :', pythonPath)
-  console.log('[Electron] BackendDir:', backendDir)
-  console.log('[Electron] Frontend  :', frontendDist)
+  console.log('[Electron] Backend cmd :', cmd)
+  console.log('[Electron] Backend args:', args.join(' '))
+  console.log('[Electron] CWD         :', cwd)
 
-  pythonProcess = spawn(
-    pythonPath,
-    ['-m', 'uvicorn', 'app.main:app',
-     '--host', '127.0.0.1',
-     '--port', String(BACKEND_PORT),
-     '--log-level', 'info'],
-    {
-      cwd: backendDir,
-      env: {
-        ...process.env,
-        PYTHONPATH: backendDir,
-        APPTRACK_FRONTEND_DIST: frontendDist,
-        // Prevent Python from buffering stdout so logs appear immediately
-        PYTHONUNBUFFERED: '1',
-      },
-      windowsHide: true,
-    }
-  )
+  pythonProcess = spawn(cmd, args, { cwd, env, windowsHide: true })
 
   pythonProcess.stdout.on('data', d => process.stdout.write('[Python] ' + d))
   pythonProcess.stderr.on('data', d => process.stderr.write('[Python] ' + d))
 
   pythonProcess.on('exit', (code, signal) => {
-    console.log(`[Electron] Python exited: code=${code} signal=${signal}`)
+    console.log(`[Electron] Backend exited: code=${code} signal=${signal}`)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('backend-exit', { code, signal })
     }

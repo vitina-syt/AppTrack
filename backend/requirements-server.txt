@@ -1,0 +1,28 @@
+# AppTrack Server Requirements
+# For Linux server deployment — excludes Windows-only recording packages.
+# Python 3.12+
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+aiofiles==24.1.0
+Pillow==11.2.1
+psutil==6.1.1
+
+# HTTP clients
+requests>=2.32.0
+httpx==0.28.1
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Anthropic SDK (Claude narration + AI generation)
+anthropic>=0.40.0
+
+# ── Excluded (Windows-only / recording-only) ────────────────────────────────
+# pywin32       — Windows UI Automation, not needed on server
+# mss           — screenshot capture, not needed on server
+# pynput        — mouse/keyboard hooks, not needed on server
+# pyaudio       — microphone capture, not needed on server
+# openai-whisper — local transcription, not needed on server
