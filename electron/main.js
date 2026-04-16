@@ -4,12 +4,16 @@
  * 两种模式，通过 electron/config.json 的 backendUrl 字段控制：
  *
  *   远程模式：backendUrl = "http://139.24.234.55"
- *     → 直接打开远程服务器，不在本机启动 Python。
- *       适合只需要浏览 Gallery / Editor 的用户。
+ *     → Electron 窗口打开远程服务器（Gallery / Editor）。
+ *       同时在本机启动本地 Python，用于录制 API（127.0.0.1:8001）。
+ *       isRemoteMode 在前端检测 hostname，录制 API 走 localApi，
+ *       Gallery / Sync API 走相对路径（指向远程服务器）。
  *
  *   本地模式：backendUrl = ""  （留空）
- *     → 在本机启动 Python 后端，用于本地录制。
+ *     → 在本机启动 Python 后端，窗口打开 127.0.0.1:8001。
  *       需要本机有 Python 环境或 PyInstaller 打包的 exe。
+ *
+ * 无论哪种模式，本地 Python 都会启动，以保证录制 API 可用。
  */
 
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
@@ -196,22 +200,38 @@ ipcMain.handle('is-remote',        () => IS_REMOTE)
 // ── App 生命周期 ──────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  if (!IS_REMOTE) {
-    // 本地模式：先启动 Python，再等待就绪
-    startPythonBackend()
+  // 始终启动本地 Python，供录制 API（127.0.0.1:8001）使用
+  startPythonBackend()
+
+  // 等待本地后端就绪（录制功能依赖本地 Python）
+  try {
+    await waitForBackend(LOCAL_URL)
+  } catch (err) {
+    console.error('[Electron] Local backend failed:', err)
+    dialog.showErrorBox(
+      '启动失败',
+      `本地录制服务启动超时。\n\n请确认 Python 环境已正确安装，并检查控制台输出。\n\n${err.message}`
+    )
+    app.quit()
+    return
   }
 
-  try {
-    await waitForBackend(BACKEND_URL)
-    createWindow(BACKEND_URL)
-  } catch (err) {
-    console.error('[Electron]', err)
-    const msg = IS_REMOTE
-      ? `无法连接到服务器：${REMOTE_URL}\n\n请检查服务器是否在线，以及网络是否可以访问。\n\n${err.message}`
-      : `后端服务启动超时。\n\n请确认 Python 环境已正确安装，并检查控制台输出。\n\n${err.message}`
-    dialog.showErrorBox('启动失败', msg)
-    app.quit()
+  // 远程模式：额外检查远程服务器是否可达
+  if (IS_REMOTE) {
+    try {
+      await waitForBackend(REMOTE_URL, 30, 500)
+    } catch (err) {
+      console.error('[Electron] Remote server unreachable:', err)
+      dialog.showErrorBox(
+        '启动失败',
+        `无法连接到服务器：${REMOTE_URL}\n\n请检查服务器是否在线，以及网络是否可以访问。\n\n${err.message}`
+      )
+      app.quit()
+      return
+    }
   }
+
+  createWindow(BACKEND_URL)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(BACKEND_URL)
