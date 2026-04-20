@@ -27,6 +27,8 @@ def _pywin32_dlls():
                     results.append((_os.path.join(win32_dir, fname), '.'))
     return results
 
+import certifi as _certifi
+
 a = Analysis(
     # Entry point: a tiny shim that starts uvicorn programmatically
     [str(ROOT / 'run_server.py')],
@@ -35,6 +37,8 @@ a = Analysis(
     datas=[
         # Include the entire app package
         (str(ROOT / 'app'), 'app'),
+        # certifi SSL certificates — required for HTTPS requests (Azure OpenAI)
+        (_certifi.where(), 'certifi'),
     ],
     hiddenimports=[
         # ── uvicorn internals ──────────────────────────────────────────────
@@ -100,6 +104,12 @@ a = Analysis(
         'sqlite3',
         # ── Env loading ───────────────────────────────────────────────────
         'dotenv',
+        # ── HTTP + SSL (Azure OpenAI 调用) ────────────────────────────────
+        'requests',
+        'certifi',
+        'urllib3',
+        'charset_normalizer',
+        'idna',
         # ── Windows recording libs ────────────────────────────────────────
         'PIL',
         'PIL.Image',

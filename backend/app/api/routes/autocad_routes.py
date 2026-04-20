@@ -384,15 +384,32 @@ def regenerate_autocad_narration(
     conn.commit()
 
     def _do():
-        narration = _generate_narration_sync(events, lang=lang, target_exe=target_exe)
-        import sqlite3
-        from app.database import DB_PATH
-        c = sqlite3.connect(str(DB_PATH))
-        c.execute(
-            "UPDATE scribe_sessions SET narration_text=?, status='done' WHERE id=?",
-            (narration, session_id),
-        )
-        c.commit(); c.close()
+        try:
+            narration = _generate_narration_sync(
+                events, lang=lang, target_exe=target_exe, background=background
+            )
+            import sqlite3
+            from app.database import DB_PATH
+            c = sqlite3.connect(str(DB_PATH))
+            c.execute(
+                "UPDATE scribe_sessions SET narration_text=?, status='done' WHERE id=?",
+                (narration, session_id),
+            )
+            c.commit(); c.close()
+            logger.info("Narration generation complete for session %d", session_id)
+        except Exception as exc:
+            logger.error("Narration thread failed for session %d: %s", session_id, exc, exc_info=True)
+            try:
+                import sqlite3
+                from app.database import DB_PATH
+                c = sqlite3.connect(str(DB_PATH))
+                c.execute(
+                    "UPDATE scribe_sessions SET status='error', error_message=? WHERE id=?",
+                    (str(exc), session_id),
+                )
+                c.commit(); c.close()
+            except Exception:
+                pass
 
     threading.Thread(target=_do, daemon=True).start()
     return {"ok": True, "session_id": session_id, "status": "processing"}

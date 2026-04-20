@@ -25,6 +25,14 @@ def main():
         base = sys._MEIPASS  # type: ignore[attr-defined]
         sys.path.insert(0, base)
 
+        # Fix SSL certificate path for the `requests` library.
+        # PyInstaller bundles certifi's cacert.pem but requests/certifi can't
+        # find it automatically; point to the bundled copy explicitly.
+        import certifi as _certifi
+        _ca_bundle = _certifi.where()
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", _ca_bundle)
+        os.environ.setdefault("SSL_CERT_FILE",       _ca_bundle)
+
     import uvicorn
     uvicorn.run(
         "app.main:app",
