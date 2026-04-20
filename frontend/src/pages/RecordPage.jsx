@@ -17,6 +17,7 @@ import {
   generateAutoCADVideo, getAutoCADVideoStatus,
   micCheck,
   syncPushSession,
+  localUrl,
 } from '../api'
 import { useSettingsStore } from '../store/settingsStore'
 import { useT } from '../hooks/useT'
@@ -827,7 +828,7 @@ function StepVideo({ sessionId, videoStatus, videoDiag, onGenerate, onRefresh, o
           </button>
           {videoStatus === 'ready' && (
             <a
-              href={`/api/autocad/sessions/${sessionId}/video/download`}
+              href={localUrl(`/api/autocad/sessions/${sessionId}/video/download`)}
               style={{ ...s.btnPrimary, background: '#9ece6a',
                        textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {t.rec_vid_download}

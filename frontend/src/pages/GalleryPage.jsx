@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Table, Tag, ConfigProvider, theme as antTheme, Tooltip, Popconfirm } from 'antd'
-import { getGallery, deleteGalleryItem } from '../api'
+import { getGallery, deleteGalleryItem, localUrl } from '../api'
 import { useT } from '../hooks/useT'
 
 // ── Ant Design dark theme ─────────────────────────────────────────────────────
@@ -278,7 +278,7 @@ export default function GalleryPage() {
 
           {/* Download video */}
           {r.has_video && (
-            <a href={`/api/autocad/sessions/${r.id}/video/download`}
+            <a href={localUrl(`/api/autocad/sessions/${r.id}/video/download`)}
               style={sa.btnDownload}>
               {t.gal_download}
             </a>

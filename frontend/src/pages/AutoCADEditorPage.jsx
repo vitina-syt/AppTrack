@@ -520,7 +520,7 @@ export default function AutoCADEditorPage() {
             )}
           </select>
           {videoState === 'ready'
-            ? <a href={`/api/autocad/sessions/${sessionId}/video/narrated/download`}
+            ? <a href={localUrl(`/api/autocad/sessions/${sessionId}/video/narrated/download`)}
                 style={{ ...s.btnGenerate, background: '#9ece6a', textDecoration: 'none',
                          display: 'inline-flex', alignItems: 'center' }}>
                 {t.ed_download_video}
