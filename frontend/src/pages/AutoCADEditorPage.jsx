@@ -17,6 +17,7 @@ import {
   listFrames, updateFrame, deleteFrame, distributeNarration,
   generateNarratedVideo, getNarratedVideoStatus,
   getAutoCADSession, regenerateAutoCADNarration,
+  localUrl,
 } from '../api'
 import { useT } from '../hooks/useT'
 
@@ -148,7 +149,7 @@ function CanvasViewer({ sessionId, eventId, shapes, selectedAnnId, tool, onAddBl
   const [drawEnd,   setDrawEnd]   = useState(null)
   const [tick,      setTick]      = useState(0)   // bumped on resize
 
-  const imgUrl = `/api/autocad/sessions/${sessionId}/events/${eventId}/image`
+  const imgUrl = localUrl(`/api/autocad/sessions/${sessionId}/events/${eventId}/image`)
 
   // Observe container size changes
   useEffect(() => {
@@ -718,7 +719,7 @@ export default function AutoCADEditorPage() {
             style={{ ...s.thumb, ...(i === idx ? s.thumbSel : {}) }}
             onClick={() => switchFrame(i)}>
             <img
-              src={`/api/autocad/sessions/${sessionId}/events/${f.event_id}/image`}
+              src={localUrl(`/api/autocad/sessions/${sessionId}/events/${f.event_id}/image`)}
               style={s.thumbImg} alt="" loading="lazy"
             />
             <div style={s.thumbLabel}>{f.title || `${t.ed_frame_label} ${i + 1}`}</div>

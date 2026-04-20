@@ -18,11 +18,21 @@ const LOCAL_BASE = 'http://127.0.0.1:8001/api'
 // Detect if we are running inside the packaged Electron app in remote mode.
 // In remote mode window.electronAPI.isElectron is true but the page origin is
 // NOT 127.0.0.1, so we need a separate axios instance for local recording.
-const isRemoteMode = (
+export const isRemoteMode = (
   typeof window !== 'undefined' &&
   window.location.hostname !== '127.0.0.1' &&
   window.location.hostname !== 'localhost'
 )
+
+/**
+ * Build a URL for a local-only resource (screenshots, local session data).
+ * In remote mode the path must be prefixed with the local backend origin
+ * so the browser fetches from 127.0.0.1 instead of the remote server.
+ *
+ * Usage:  <img src={localUrl(`/api/autocad/sessions/${id}/events/${eid}/image`)} />
+ */
+export const localUrl = (path) =>
+  isRemoteMode ? `http://127.0.0.1:8001${path}` : path
 
 const api      = axios.create({ baseURL: '/api' })
 const localApi = isRemoteMode
