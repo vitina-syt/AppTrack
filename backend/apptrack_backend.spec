@@ -14,11 +14,24 @@ from pathlib import Path
 block_cipher = None
 ROOT = Path(SPECPATH)   # backend/
 
+import site, os as _os
+
+# Collect pywin32 DLLs — PyInstaller often misses them
+def _pywin32_dlls():
+    results = []
+    for sp in site.getsitepackages():
+        win32_dir = _os.path.join(sp, 'pywin32_system32')
+        if _os.path.isdir(win32_dir):
+            for fname in _os.listdir(win32_dir):
+                if fname.endswith('.dll'):
+                    results.append((_os.path.join(win32_dir, fname), '.'))
+    return results
+
 a = Analysis(
     # Entry point: a tiny shim that starts uvicorn programmatically
     [str(ROOT / 'run_server.py')],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=_pywin32_dlls(),
     datas=[
         # Include the entire app package
         (str(ROOT / 'app'), 'app'),
@@ -54,6 +67,16 @@ a = Analysis(
         'aiofiles',
         'httpx',
         'dotenv',
+        'email.mime.text',
+        'email.mime.multipart',
+        'multipart',
+        'starlette',
+        'starlette.middleware',
+        'starlette.middleware.cors',
+        'anyio',
+        'anyio._backends._asyncio',
+        'anyio._backends._trio',
+        'sniffio',
     ],
     hookspath=[],
     hooksconfig={},

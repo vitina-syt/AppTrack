@@ -200,24 +200,19 @@ ipcMain.handle('is-remote',        () => IS_REMOTE)
 // ── App 生命周期 ──────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  // 始终启动本地 Python，供录制 API（127.0.0.1:8001）使用
+  // 始终尝试启动本地 Python（录制 API 需要），但在远程模式下失败不阻塞启动
   startPythonBackend()
 
-  // 等待本地后端就绪（录制功能依赖本地 Python）
-  try {
-    await waitForBackend(LOCAL_URL)
-  } catch (err) {
-    console.error('[Electron] Local backend failed:', err)
-    dialog.showErrorBox(
-      '启动失败',
-      `本地录制服务启动超时。\n\n请确认 Python 环境已正确安装，并检查控制台输出。\n\n${err.message}`
-    )
-    app.quit()
-    return
-  }
-
-  // 远程模式：额外检查远程服务器是否可达
   if (IS_REMOTE) {
+    // 远程模式：
+    //   - 本地 Python 启动失败只记录警告，录制功能在用户点击时才会报错
+    //   - 必须能连接到远程服务器，否则无法使用任何功能
+    waitForBackend(LOCAL_URL, 20, 400).then(() => {
+      console.log('[Electron] Local recording backend is ready.')
+    }).catch(err => {
+      console.warn('[Electron] Local recording backend unavailable (recording will not work):', err.message)
+    })
+
     try {
       await waitForBackend(REMOTE_URL, 30, 500)
     } catch (err) {
@@ -225,6 +220,19 @@ app.whenReady().then(async () => {
       dialog.showErrorBox(
         '启动失败',
         `无法连接到服务器：${REMOTE_URL}\n\n请检查服务器是否在线，以及网络是否可以访问。\n\n${err.message}`
+      )
+      app.quit()
+      return
+    }
+  } else {
+    // 本地模式：Python 必须启动成功
+    try {
+      await waitForBackend(LOCAL_URL)
+    } catch (err) {
+      console.error('[Electron] Local backend failed:', err)
+      dialog.showErrorBox(
+        '启动失败',
+        `本地录制服务启动超时。\n\n请确认 Python 环境已正确安装，并检查控制台输出。\n\n${err.message}`
       )
       app.quit()
       return
