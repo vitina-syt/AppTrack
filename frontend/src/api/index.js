@@ -81,9 +81,10 @@ export const pickFile = ({ title = '选择文件', filterName = '所有文件', 
 export const micCheck = (durationMs = 2000) =>
   localApi.get('/util/mic-check', { params: { duration_ms: durationMs }, timeout: 30000 }).then(r => r.data)
 
-// ── Gallery  (remote server — shared across all users) ───────────────────────
-export const getGallery        = () => api.get('/gallery').then(r => r.data)
-export const deleteGalleryItem = (id) => api.delete(`/gallery/${id}`).then(r => r.data)
+// ── Gallery  (local backend — shows the current user's recordings) ────────────
+// In remote mode localApi → 127.0.0.1:8001; in local mode it's the same as api.
+export const getGallery        = () => localApi.get('/gallery').then(r => r.data)
+export const deleteGalleryItem = (id) => localApi.delete(`/gallery/${id}`).then(r => r.data)
 
 // ── Sync  (local → push to remote server) ────────────────────────────────────
 export const syncPushSession = (sessionId, serverUrl) =>

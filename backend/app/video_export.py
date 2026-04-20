@@ -401,7 +401,14 @@ _narrated_job: dict[int, dict] = {}
 
 
 def get_narrated_job_state(session_id: int) -> dict:
-    return _narrated_job.get(session_id, {"status": "not_started", "error": None})
+    state = _narrated_job.get(session_id)
+    if state:
+        return state
+    # In-memory state is lost on restart — check disk as fallback
+    video_path = _BASE / str(session_id) / f"session_{session_id}_narrated.mp4"
+    if video_path.exists():
+        return {"status": "ready", "error": None}
+    return {"status": "not_started", "error": None}
 
 
 def _tts_to_file(text: str, voice: str, out_path: Path) -> bool:

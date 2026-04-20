@@ -318,6 +318,10 @@ export default function AutoCADEditorPage() {
       })))
     )
     getAutoCADSession(sessionId).then(s => setNarrationText(s.narration_text ?? '')).catch(() => {})
+    // Restore video state from backend on mount (survives page navigation and server restarts)
+    getNarratedVideoStatus(sessionId).then(s => {
+      if (s.status === 'ready') setVideoState('ready')
+    }).catch(() => {})
   }, [sessionId])
 
   function tryParse(raw) {
