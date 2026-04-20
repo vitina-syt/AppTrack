@@ -397,7 +397,8 @@ except Exception:
 from app.autocad_monitor import AutoCADMonitor, categorize_command, COMMAND_CATEGORIES
 from app.voice_capture import VoiceCapture
 
-SCREENSHOTS_BASE = Path(__file__).parent.parent / "data" / "autocad_screenshots"
+from app.database import DATA_DIR
+SCREENSHOTS_BASE = DATA_DIR / "autocad_screenshots"
 
 
 def _utcnow() -> str:

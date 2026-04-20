@@ -74,7 +74,8 @@ def _output_dir(session_id: int) -> Path:
     return d
 
 
-_BASE = Path(__file__).parent.parent / "data" / "videos"
+from app.database import DATA_DIR as _DATA_DIR
+_BASE = _DATA_DIR / "videos"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

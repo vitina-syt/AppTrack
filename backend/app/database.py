@@ -4,10 +4,28 @@ Thread-safe single-file local storage — no cloud, no ORM.
 """
 import sqlite3
 import threading
+import sys
 import os
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "data" / "apptrack.db"
+
+def _get_data_dir() -> Path:
+    """
+    Return a writable data directory.
+
+    - Frozen (PyInstaller exe): %APPDATA%\\AppTrack\\   (always user-writable)
+    - Development / uvicorn:    <project_root>/backend/data/
+    """
+    if getattr(sys, "frozen", False):
+        # Running as packaged exe — write to user's AppData, never to Program Files
+        appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
+        return Path(appdata) / "AppTrack"
+    # Development: relative to this file → backend/data/
+    return Path(__file__).parent.parent / "data"
+
+
+DATA_DIR = _get_data_dir()
+DB_PATH  = DATA_DIR / "apptrack.db"
 
 _local = threading.local()
 

@@ -12,13 +12,13 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.database import get_conn
+from app.database import get_conn, DATA_DIR
 
 logger = logging.getLogger("app.gallery_routes")
 router = APIRouter(prefix="/api/gallery", tags=["gallery"])
 
 # Video base dir — mirrors video_export._BASE
-_VIDEO_BASE = Path(__file__).parent.parent.parent.parent / "data" / "videos"
+_VIDEO_BASE = DATA_DIR / "videos"
 
 
 def _video_info(session_id: int) -> dict:
