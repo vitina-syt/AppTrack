@@ -46,6 +46,16 @@ const config = loadConfig()
 const REMOTE_URL = (config.backendUrl || '').trim().replace(/\/+$/, '')
 const IS_REMOTE  = REMOTE_URL.length > 0
 
+// 远程模式下：前端页面从公网地址加载，但录制 API 要访问 127.0.0.1（私有地址）。
+// Chrome 98+ 的 Private Network Access 策略会阻止这种跨域请求。
+// 对于 Electron 桌面应用，直接禁用该检查是合理且安全的。
+if (IS_REMOTE) {
+  app.commandLine.appendSwitch(
+    'disable-features',
+    'PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults,BlockInsecurePrivateNetworkRequests'
+  )
+}
+
 // 本地模式下的后端地址
 const LOCAL_URL  = `http://127.0.0.1:${LOCAL_PORT}`
 

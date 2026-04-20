@@ -13,10 +13,11 @@ import logging
 import os
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 def _load_dotenv():
@@ -82,6 +83,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Chrome 98+ Private Network Access: 公网页面访问 127.0.0.1 需要此头。
+# 对于 OPTIONS 预检请求也要回复 Access-Control-Allow-Private-Network: true。
+class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.headers.get("access-control-request-private-network"):
+            response.headers["access-control-allow-private-network"] = "true"
+        return response
+
+app.add_middleware(PrivateNetworkAccessMiddleware)
 
 # ── API routers (must be registered BEFORE the SPA catch-all) ─────────────────
 if _RECORDING_AVAILABLE:
