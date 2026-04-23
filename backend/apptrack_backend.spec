@@ -33,7 +33,10 @@ a = Analysis(
     # Entry point: a tiny shim that starts uvicorn programmatically
     [str(ROOT / 'run_server.py')],
     pathex=[str(ROOT)],
-    binaries=_pywin32_dlls(),
+    binaries=_pywin32_dlls()+ [
+        ('venv\\Lib\\site-packages\\_portaudio.cp311-win_amd64.pyd', '.'),
+        ('venv\\Lib\\site-packages\\pyaudio.py', '.'),
+    ],
     datas=[
         # Include the entire app package
         (str(ROOT / 'app'), 'app'),
@@ -126,6 +129,8 @@ a = Analysis(
         # ── Email (stdlib extension sometimes missed) ─────────────────────
         'email.mime.text',
         'email.mime.multipart',
+        'pyaudio',
+        '_portaudio',
     ],
     hookspath=[],
     hooksconfig={},
