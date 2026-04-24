@@ -468,7 +468,7 @@ def _take_screenshot(
             return png.name
         return path.name
     except Exception as exc:
-        logger.warning("Screenshot failed: %s", exc)
+        logger.error("Screenshot failed (folder=%s, file=%s): %s", folder, filename, exc, exc_info=True)
         return None
 
 

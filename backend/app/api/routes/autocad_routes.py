@@ -265,6 +265,7 @@ def video_status(session_id: int):
     import shutil as _shutil
     from app.video_export import get_job_state, get_existing_video, _screenshot_paths, _PIL
     from app.autocad_agent import _MSS, SCREENSHOTS_BASE
+    from app.database import DATA_DIR
 
     # Screenshot count (files that exist on disk)
     shots = _screenshot_paths(session_id)
@@ -285,6 +286,18 @@ def video_status(session_id: int):
     if existing and state["status"] == "not_started":
         state = {"status": "ready", "error": None}
 
+    # Test actual write permission on the data directory
+    _data_dir_writable = False
+    _data_dir_error = None
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        _probe = DATA_DIR / ".write_probe"
+        _probe.write_bytes(b"1")
+        _probe.unlink()
+        _data_dir_writable = True
+    except Exception as e:
+        _data_dir_error = str(e)
+
     return {
         "status":              state["status"],       # not_started|generating|ready|error
         "error":               state["error"],
@@ -293,6 +306,9 @@ def video_status(session_id: int):
         "has_file":            existing is not None,
         "file_type":           existing[1] if existing else None,
         "screenshots_dir":     str(SCREENSHOTS_BASE / str(session_id)),
+        "data_dir":            str(DATA_DIR),
+        "data_dir_writable":   _data_dir_writable,
+        "data_dir_error":      _data_dir_error,
         "env": {
             "ffmpeg": _shutil.which("ffmpeg") is not None,
             "pillow": _PIL,
