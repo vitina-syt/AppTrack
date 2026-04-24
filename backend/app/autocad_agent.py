@@ -398,7 +398,11 @@ from app.autocad_monitor import AutoCADMonitor, categorize_command, COMMAND_CATE
 from app.voice_capture import VoiceCapture
 
 from app.database import DATA_DIR
-SCREENSHOTS_BASE = DATA_DIR / "autocad_screenshots"
+import sys as _sys
+if getattr(_sys, "frozen", False):
+    SCREENSHOTS_BASE = Path("C:/document/AppTrack/autocad_screenshots")
+else:
+    SCREENSHOTS_BASE = DATA_DIR / "autocad_screenshots"
 
 
 def _utcnow() -> str:
