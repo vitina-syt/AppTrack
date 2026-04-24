@@ -29,14 +29,19 @@ def _pywin32_dlls():
 
 import certifi as _certifi
 
+def _portaudio_bins():
+    results = []
+    for fname in ('_portaudio.cp311-win_amd64.pyd', 'pyaudio.py'):
+        p = ROOT / 'venv' / 'Lib' / 'site-packages' / fname
+        if p.exists():
+            results.append((str(p), '.'))
+    return results
+
 a = Analysis(
     # Entry point: a tiny shim that starts uvicorn programmatically
     [str(ROOT / 'run_server.py')],
     pathex=[str(ROOT)],
-    binaries=_pywin32_dlls()+ [
-        ('venv\\Lib\\site-packages\\_portaudio.cp311-win_amd64.pyd', '.'),
-        ('venv\\Lib\\site-packages\\pyaudio.py', '.'),
-    ],
+    binaries=_pywin32_dlls() + _portaudio_bins(),
     datas=[
         # Include the entire app package
         (str(ROOT / 'app'), 'app'),
@@ -129,9 +134,7 @@ a = Analysis(
         # ── Email (stdlib extension sometimes missed) ─────────────────────
         'email.mime.text',
         'email.mime.multipart',
-        'pyaudio',
-        '_portaudio',
-    ],
+    ] + (['pyaudio', '_portaudio'] if (ROOT / 'venv/Lib/site-packages/pyaudio.py').exists() else []),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
