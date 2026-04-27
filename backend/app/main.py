@@ -21,8 +21,20 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 
 def _load_dotenv():
-    env_path = Path(__file__).parent.parent / ".env"
-    if not env_path.exists():
+    if getattr(sys, "frozen", False):
+        # PyInstaller: __file__ is inside _MEIPASS (temp dir), not the install dir.
+        # Electron sets cwd = resources/backend/ when launching the exe, so .env is there.
+        # Fallback: exe lives at resources/backend/dist/apptrack_backend/apptrack_backend.exe,
+        # so 3 levels up also reaches resources/backend/.
+        candidates = [
+            Path(os.getcwd()) / ".env",
+            Path(sys.executable).parent.parent.parent / ".env",
+        ]
+    else:
+        candidates = [Path(__file__).parent.parent / ".env"]
+
+    env_path = next((p for p in candidates if p.exists()), None)
+    if not env_path:
         return
     try:
         from dotenv import load_dotenv
