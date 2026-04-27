@@ -23,26 +23,7 @@ const http = require('http')
 const https = require('https')
 const fs = require('fs')
 
-function loadDotEnv() {
-  const envPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'backend', '.env')
-    : path.join(__dirname, '..', 'backend', '.env')
-  const result = {}
-  try {
-    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
-      line = line.trim()
-      if (!line || line.startsWith('#') || !line.includes('=')) return
-      const eq  = line.indexOf('=')
-      const key = line.slice(0, eq).trim()
-      const val = line.slice(eq + 1).trim().replace(/^['"]|['"]$/g, '')
-      if (key) result[key] = val
-    })
-  } catch {}
-  return result
-}
-
-const _dotEnv   = loadDotEnv()
-const LOCAL_PORT = parseInt(_dotEnv.BACKEND_PORT || '8002', 10)
+const LOCAL_PORT = 8001
 let pythonProcess = null
 let mainWindow = null
 
@@ -108,7 +89,7 @@ function resolveBackendLaunch() {
       cmd:  pyiExe,
       args: ['--port', String(LOCAL_PORT), '--frontend-dist', frontendDist],
       cwd:  backendDir,
-      env:  { ...process.env, ..._dotEnv, PYTHONUNBUFFERED: '1' },
+      env:  { ...process.env, PYTHONUNBUFFERED: '1' },
     }
   }
 
@@ -131,7 +112,6 @@ function resolveBackendLaunch() {
     cwd:  backendDir,
     env:  {
       ...process.env,
-      ..._dotEnv,
       PYTHONPATH:             backendDir,
       APPTRACK_FRONTEND_DIST: frontendDist,
       PYTHONUNBUFFERED:       '1',
