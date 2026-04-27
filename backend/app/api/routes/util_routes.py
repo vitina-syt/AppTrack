@@ -5,6 +5,7 @@ GET /api/util/pick-file  — open a native OS file-picker dialog on the server
                            machine and return the selected absolute path.
 GET /api/util/mic-check  — record 2 s of audio and return RMS level + device list.
 """
+import os
 from fastapi import APIRouter, Query
 from fastapi.concurrency import run_in_threadpool
 
@@ -79,16 +80,8 @@ async def mic_check(
             return report
         report["pyaudio_available"] = True
 
-        # ── 2. Check whisper ──────────────────────────────────────────────────
-        try:
-            import whisper  # noqa: F401
-            report["whisper_available"] = True
-        except ImportError:
-            try:
-                import openai  # noqa: F401
-                report["whisper_available"] = True   # API fallback available
-            except ImportError:
-                pass
+        # ── 2. Check Azure Whisper API key ────────────────────────────────────
+        report["whisper_available"] = bool(os.environ.get("AZURE_WHISPER_API_KEY", "").strip())
 
         # ── 3. List input devices ─────────────────────────────────────────────
         pa = pyaudio.PyAudio()

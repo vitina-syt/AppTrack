@@ -522,8 +522,8 @@ function MicCheck() {
         <div style={{ marginTop: 6, fontSize: 11, color: '#e0af68',
                       background: '#2d2510', borderRadius: 5,
                       padding: '5px 8px', border: '1px solid #e0af6844' }}>
-          ⚠ Run：<code style={{ color: '#e0af68' }}>pip install openai-whisper</code>
-          {' '}or set <code style={{ color: '#e0af68' }}>OPENAI_API_KEY</code>
+          ⚠ 请在 <code style={{ color: '#e0af68' }}>backend/.env</code> 中设置{' '}
+          <code style={{ color: '#e0af68' }}>AZURE_WHISPER_API_KEY</code>
         </div>
       )}
 
