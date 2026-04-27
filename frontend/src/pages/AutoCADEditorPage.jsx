@@ -305,23 +305,61 @@ export default function AutoCADEditorPage() {
   const [videoState,   setVideoState]   = useState(null)  // null|generating|ready|error
   const [voice,        setVoice]        = useState('alloy')
   const [narrationText,setNarrationText]= useState(null)  // null = not loaded yet
+  const [voiceLoading, setVoiceLoading] = useState(false)
+  const [voicePending, setVoicePending] = useState(0)
 
   // ── Load frames + session ──────────────────────────────────────────────────
 
   useEffect(() => {
-    listFrames(sessionId).then(data =>
-      setFrames(data.map(f => ({
+    let mounted = true
+    let timer   = null
+    const POLL_MS  = 4000
+    const MAX_MS   = 60000
+    const started  = Date.now()
+
+    function mapFrames(data) {
+      return data.map(f => ({
         ...f,
         shapes:           tryParse(f.shapes_json),
         voice_text:       f.voice_text       ?? null,
         voice_confidence: f.voice_confidence ?? null,
-      })))
-    )
+      }))
+    }
+
+    async function poll() {
+      if (!mounted) return
+      if (Date.now() - started >= MAX_MS) { setVoiceLoading(false); return }
+      try {
+        const data    = await listFrames(sessionId)
+        if (!mounted) return
+        const pending = data.filter(f => f.voice_text === null).length
+        setVoicePending(pending)
+        // Merge only frames that were previously null so user edits aren't lost
+        setFrames(cur => cur.map(f => {
+          if (f.voice_text !== null) return f
+          const fresh = data.find(d => d.event_id === f.event_id)
+          return fresh ? { ...f, voice_text: fresh.voice_text ?? null, voice_confidence: fresh.voice_confidence ?? null } : f
+        }))
+        if (pending === 0) { setVoiceLoading(false); return }
+        timer = setTimeout(poll, POLL_MS)
+      } catch { setVoiceLoading(false) }
+    }
+
+    listFrames(sessionId).then(data => {
+      if (!mounted) return
+      const mapped  = mapFrames(data)
+      const pending = mapped.filter(f => f.voice_text === null).length
+      setFrames(mapped)
+      setVoicePending(pending)
+      if (pending > 0) { setVoiceLoading(true); timer = setTimeout(poll, POLL_MS) }
+    }).catch(() => {})
+
     getAutoCADSession(sessionId).then(s => setNarrationText(s.narration_text ?? '')).catch(() => {})
-    // Restore video state from backend on mount (survives page navigation and server restarts)
     getNarratedVideoStatus(sessionId).then(s => {
       if (s.status === 'ready') setVideoState('ready')
     }).catch(() => {})
+
+    return () => { mounted = false; if (timer) clearTimeout(timer) }
   }, [sessionId])
 
   function tryParse(raw) {
@@ -466,7 +504,9 @@ export default function AutoCADEditorPage() {
   function clamp01(v) { return Math.min(1, Math.max(0, v)) }
   function clampR(v) { return Math.min(0.45, Math.max(0.008, v)) }
 
-  const loadingMsg = distributing
+  const loadingMsg = voiceLoading
+    ? `${t.ed_overlay_voice}${voicePending > 0 ? ` (${voicePending})` : ''}`
+    : distributing
     ? (distStatus || t.ed_overlay_ai)
     : videoState === 'generating'
       ? t.ed_overlay_video

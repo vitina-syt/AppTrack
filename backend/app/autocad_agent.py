@@ -1540,19 +1540,28 @@ class AutoCADScribeAgent:
 
             # 3. Transcribe per-frame voice (may block up to 60 s — runs here in
             #    the daemon thread so it never delays screenshot capture or COM events).
+            #    Use an independent DB connection rather than _write_queue because
+            #    the writer thread and self._conn are closed within 5 s of stop(),
+            #    while this transcription can finish well after the session ends.
             if pcm_snapshot:
                 logger.debug("transcribing per-frame voice (%d bytes)", len(pcm_snapshot))
                 text, conf = _transcribe_pcm(pcm_snapshot)
                 logger.debug("per-frame voice result: %r (conf=%.2f)", text[:60] if text else "", conf)
                 if text:
-                    # Back-fill voice text via UPDATE so the frame is not delayed.
-                    self._write_queue.put({
-                        "_voice_update":  True,
-                        "session_id":     rid,
-                        "seq":            pre_seq,
-                        "voice_text":     text,
-                        "voice_confidence": round(conf, 3),
-                    })
+                    try:
+                        from app.database import DB_PATH as _DB_PATH
+                        import sqlite3 as _sq3
+                        _vc = _sq3.connect(str(_DB_PATH))
+                        _vc.execute(
+                            "UPDATE scribe_events SET voice_text=?, voice_confidence=?"
+                            " WHERE session_id=? AND seq=?",
+                            (text, round(conf, 3), rid, pre_seq),
+                        )
+                        _vc.commit()
+                        _vc.close()
+                        logger.debug("voice back-fill written: session=%s seq=%s", rid, pre_seq)
+                    except Exception as _ve:
+                        logger.warning("voice back-fill UPDATE failed: %s", _ve)
 
         threading.Thread(target=_do, daemon=True).start()
 
