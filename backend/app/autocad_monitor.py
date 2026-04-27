@@ -13,6 +13,8 @@ Usage
     mon.start(callback)   # callback(event_dict)  called from monitor thread
     mon.stop()
 """
+import os
+import sys
 import threading
 import time
 import logging
@@ -324,13 +326,25 @@ class AutoCADMonitor:
 
     def _get_acad_com(self):
         """Try to connect to a running AutoCAD instance via COM (early-bound)."""
-        # EnsureDispatch generates/caches the type-library wrapper so that
-        # WithEvents can find the event interface — plain GetActiveObject returns
-        # a late-bound object that lacks the type-library metadata WithEvents needs.
+        # In a PyInstaller frozen bundle sys.prefix points to the read-only bundle
+        # dir, so win32com.gencache.EnsureDispatch fails trying to write the
+        # generated type-library wrappers there.  Redirect to a writable AppData
+        # directory *before* the first EnsureDispatch call.
+        if getattr(sys, "frozen", False):
+            import win32com as _win32com
+            _gen = os.path.join(
+                os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+                "AppTrack", "gen_py",
+            )
+            os.makedirs(_gen, exist_ok=True)
+            _win32com.__gen_path__ = _gen
+
         for prog_id in self.ACAD_PROG_IDS:
             try:
                 late = win32com.client.GetActiveObject(prog_id)
-                # Upgrade to early-bound dispatch
+                # Upgrade to early-bound dispatch so WithEvents can find the
+                # event interface — plain GetActiveObject returns a late-bound
+                # object that lacks the type-library metadata WithEvents needs.
                 return win32com.client.gencache.EnsureDispatch(late)
             except Exception:
                 pass

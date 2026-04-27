@@ -219,6 +219,19 @@ class VoiceCapture:
     # ── capture loop ─────────────────────────────────────────────────────
 
     def _capture_loop(self) -> None:
+        # Initialise COM as STA on this thread BEFORE PortAudio/WASAPI initialises it.
+        # Without this, Pa_Initialize() calls CoInitializeEx(COINIT_MULTITHREADED) which
+        # creates a process-wide MTA and disrupts AutoCAD COM event delivery on the
+        # companion STA COM-monitor thread.  WASAPI treats RPC_E_CHANGED_MODE as
+        # "already initialised" and works normally in STA mode.
+        _co = None
+        try:
+            import pythoncom as _pythoncom
+            _pythoncom.CoInitialize()
+            _co = _pythoncom
+        except Exception:
+            pass
+
         pa = pyaudio.PyAudio()
         stream = None
         try:
@@ -232,6 +245,11 @@ class VoiceCapture:
         except Exception as exc:
             logger.warning("Voice capture: failed to open audio stream (%s) — recording disabled", exc)
             pa.terminate()
+            if _co:
+                try:
+                    _co.CoUninitialize()
+                except Exception:
+                    pass
             with self._lock:
                 self._running = False
             return
@@ -293,6 +311,11 @@ class VoiceCapture:
             stream.stop_stream()
             stream.close()
             pa.terminate()
+            if _co:
+                try:
+                    _co.CoUninitialize()
+                except Exception:
+                    pass
 
     def _flush_segment(self, frames: List[bytes], start_ts: str) -> None:
         """Normalise and write audio frames to a WAV file, then enqueue for transcription."""

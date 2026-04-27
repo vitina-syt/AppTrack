@@ -145,6 +145,13 @@ a = Analysis(
         'win32con',
         'pythoncom',
         'pywintypes',
+        'win32com',
+        'win32com.client',
+        'win32com.client.gencache',
+        'win32com.client.dynamic',
+        'win32com.client.build',
+        'win32com.server',
+        'win32com.server.util',
         # ── Email (stdlib extension sometimes missed) ─────────────────────
         'email.mime.text',
         'email.mime.multipart',
