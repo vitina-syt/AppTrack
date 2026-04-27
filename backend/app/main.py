@@ -11,6 +11,7 @@ development via `uvicorn app.main:app --reload`.
 """
 import logging
 import os
+import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
