@@ -1141,6 +1141,21 @@ class AutoCADScribeAgent:
         )
         self._writer.start()
 
+        # ── Voice capture starts FIRST ────────────────────────────────────────
+        # PortAudio/WASAPI calls CoInitializeEx(COINIT_MULTITHREADED) during
+        # Pa_Initialize() / Pa_OpenStream(), creating a COM MTA on the voice
+        # thread.  If this happens AFTER the AutoCAD COM monitor has registered
+        # WithEvents on its STA, the new MTA can disrupt COM event routing and
+        # OnEndCommand callbacks stop firing.
+        # Starting voice first and waiting for pa.open() to complete ensures
+        # the MTA is stable before the COM monitor creates its STA apartment.
+        if enable_voice:
+            audio_dir = SCREENSHOTS_BASE / str(sid) / "audio"
+            self._voice = VoiceCapture(audio_dir=audio_dir)
+            self._voice.start(self._on_voice_segment)
+            self._voice.wait_ready(timeout=5.0)   # wait for WASAPI/MTA to stabilise
+            logger.info("Voice capture ready — starting COM monitor")
+
         if enable_com:
             if target_exe.lower() in _CREO_EXES:
                 from app.creo_uia import CreoUiaMonitor
@@ -1160,11 +1175,6 @@ class AutoCADScribeAgent:
             else:
                 self._monitor = AutoCADMonitor()
             self._monitor.start(self._on_event)
-
-        if enable_voice:
-            audio_dir = SCREENSHOTS_BASE / str(sid) / "audio"
-            self._voice = VoiceCapture(audio_dir=audio_dir)
-            self._voice.start(self._on_voice_segment)
 
         self._periodic = threading.Thread(
             target=self._periodic_loop, name="AutoCAD-periodic", daemon=True

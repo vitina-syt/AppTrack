@@ -145,6 +145,10 @@ class VoiceCapture:
         self._pcm_lock   = threading.Lock()
         self._pcm_max_chunks = int(60 * self.RATE / self.CHUNK)
 
+        # Signals when the audio stream is open (or failed) so callers can
+        # wait before starting other COM-dependent subsystems (AutoCAD monitor).
+        self._ready_event: threading.Event = threading.Event()
+
         if _PYAUDIO:
             self.FORMAT = pyaudio.paInt16
 
@@ -161,6 +165,7 @@ class VoiceCapture:
 
         if not _PYAUDIO:
             logger.warning("pyaudio unavailable — voice capture inactive")
+            self._ready_event.set()   # nothing to wait for — signal immediately
             return
 
         self._capture_thread = threading.Thread(
@@ -187,6 +192,16 @@ class VoiceCapture:
         """Return all transcribed segments collected so far."""
         with self._lock:
             return list(self._segments)
+
+    def wait_ready(self, timeout: float = 5.0) -> bool:
+        """Block until the audio stream is open (or failed/disabled).
+
+        Returns True if ready within *timeout* seconds.  Call this after
+        start() and before starting COM-dependent subsystems so that
+        PortAudio/WASAPI COM initialisation is complete before the AutoCAD
+        COM monitor creates its STA apartment.
+        """
+        return self._ready_event.wait(timeout=timeout)
 
     def snapshot_pcm(self, window_secs: float = 15.0) -> bytes:
         """Return the last *window_secs* of raw PCM audio (16 kHz, mono, int16).
@@ -219,19 +234,11 @@ class VoiceCapture:
     # ── capture loop ─────────────────────────────────────────────────────
 
     def _capture_loop(self) -> None:
-        # Initialise COM as STA on this thread BEFORE PortAudio/WASAPI initialises it.
-        # Without this, Pa_Initialize() calls CoInitializeEx(COINIT_MULTITHREADED) which
-        # creates a process-wide MTA and disrupts AutoCAD COM event delivery on the
-        # companion STA COM-monitor thread.  WASAPI treats RPC_E_CHANGED_MODE as
-        # "already initialised" and works normally in STA mode.
-        _co = None
-        try:
-            import pythoncom as _pythoncom
-            _pythoncom.CoInitialize()
-            _co = _pythoncom
-        except Exception:
-            pass
-
+        # NOTE: Do NOT call CoInitialize/CoInitializeEx here.
+        # Pa_Initialize() (inside PyAudio()) calls CoInitializeEx(COINIT_MULTITHREADED)
+        # which is fine — it creates an MTA on this thread.  Calling CoInitialize()
+        # (STA) first causes Pa_OpenStream's cross-process COM calls to audiodg.exe to
+        # deadlock because the STA message pump is never run on this thread.
         pa = pyaudio.PyAudio()
         stream = None
         try:
@@ -245,14 +252,14 @@ class VoiceCapture:
         except Exception as exc:
             logger.warning("Voice capture: failed to open audio stream (%s) — recording disabled", exc)
             pa.terminate()
-            if _co:
-                try:
-                    _co.CoUninitialize()
-                except Exception:
-                    pass
+            self._ready_event.set()   # signal: open failed, caller need not wait further
             with self._lock:
                 self._running = False
             return
+
+        # pa.open() succeeded — WASAPI/MTA is now stable.  Signal callers that
+        # waited on wait_ready() before starting the AutoCAD COM monitor.
+        self._ready_event.set()
 
         frames_in_segment: List[bytes] = []
         silent_frames = 0
@@ -311,11 +318,6 @@ class VoiceCapture:
             stream.stop_stream()
             stream.close()
             pa.terminate()
-            if _co:
-                try:
-                    _co.CoUninitialize()
-                except Exception:
-                    pass
 
     def _flush_segment(self, frames: List[bytes], start_ts: str) -> None:
         """Normalise and write audio frames to a WAV file, then enqueue for transcription."""
