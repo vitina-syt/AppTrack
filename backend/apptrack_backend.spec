@@ -15,6 +15,7 @@ block_cipher = None
 ROOT = Path(SPECPATH)   # backend/
 
 import site, os as _os
+from PyInstaller.utils.hooks import collect_submodules as _collect_submodules
 
 # Collect pywin32 DLLs — PyInstaller often misses them
 def _pywin32_dlls():
@@ -132,9 +133,9 @@ a = Analysis(
         'urllib3',
         'charset_normalizer',
         'idna',
+        # ── Pillow — collect all submodules so ImageDraw/ImageFont/etc. all work ─
+        *_collect_submodules('PIL'),
         # ── Windows recording libs ────────────────────────────────────────
-        'PIL',
-        'PIL.Image',
         'mss',
         'pynput',
         'pynput.mouse',
