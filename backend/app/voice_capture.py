@@ -64,7 +64,7 @@ def _normalize_audio(raw: bytes, target_rms: float = 0.08) -> bytes:
     current_rms = float(np.sqrt(np.mean(pcm ** 2)))
     if current_rms < 1e-6:
         return raw
-    gain = min(target_rms / current_rms, 10.0)
+    gain = min(target_rms / current_rms, 20.0)
     normalised = np.clip(pcm * gain, -1.0, 1.0)
     return (normalised * 32767).astype(np.int16).tobytes()
 
@@ -122,7 +122,7 @@ class VoiceCapture:
 
     def __init__(
         self,
-        silence_thresh: float = 0.01,
+        silence_thresh: float = 0.004,
         silence_secs: float = 1.5,
         max_segment_secs: float = 30.0,
         audio_dir: Optional[Path] = None,
@@ -207,24 +207,14 @@ class VoiceCapture:
         """Return the last *window_secs* of raw PCM audio (16 kHz, mono, int16).
 
         Called at screenshot-trigger time for per-frame voice alignment.
-        Returns b'' if buffer is empty or audio is pure silence.
+        Returns b'' if buffer is empty.
         """
         frames_needed = max(1, int(window_secs * self.RATE / self.CHUNK))
         with self._pcm_lock:
             recent = list(self._pcm_buffer)[-frames_needed:]
         if not recent:
             return b""
-        raw = b"".join(recent)
-        if _NUMPY:
-            import numpy as np
-            pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
-            n_chunks = len(pcm) // self.CHUNK
-            if n_chunks > 0:
-                chunks = pcm[:n_chunks * self.CHUNK].reshape(n_chunks, self.CHUNK)
-                max_chunk_rms = float(np.max(np.sqrt(np.mean(chunks ** 2, axis=1))))
-                if max_chunk_rms < self.silence_thresh:
-                    return b""
-        return raw
+        return b"".join(recent)
 
     @property
     def running(self) -> bool:
