@@ -30,11 +30,25 @@ def _pywin32_dlls():
 import certifi as _certifi
 
 def _portaudio_bins():
+    """Find _portaudio.pyd regardless of Python version or pyaudio layout."""
     results = []
-    for fname in ('_portaudio.cp311-win_amd64.pyd', 'pyaudio.py'):
-        p = ROOT / 'venv' / 'Lib' / 'site-packages' / fname
-        if p.exists():
-            results.append((str(p), '.'))
+    sp_dir = ROOT / 'venv' / 'Lib' / 'site-packages'
+
+    # pyaudio >= 0.2.14: package layout  (site-packages/pyaudio/_portaudio.cpXX.pyd)
+    pkg_dir = sp_dir / 'pyaudio'
+    if pkg_dir.is_dir():
+        for f in pkg_dir.iterdir():
+            if f.name.startswith('_portaudio') and f.suffix == '.pyd':
+                results.append((str(f), 'pyaudio'))
+        return results
+
+    # pyaudio <= 0.2.13: flat layout  (site-packages/_portaudio.cpXX.pyd + pyaudio.py)
+    for f in sp_dir.iterdir():
+        if f.name.startswith('_portaudio') and f.suffix == '.pyd':
+            results.append((str(f), '.'))
+    flat_py = sp_dir / 'pyaudio.py'
+    if flat_py.exists():
+        results.append((str(flat_py), '.'))
     return results
 
 a = Analysis(
@@ -134,7 +148,10 @@ a = Analysis(
         # ── Email (stdlib extension sometimes missed) ─────────────────────
         'email.mime.text',
         'email.mime.multipart',
-    ] + (['pyaudio', '_portaudio'] if (ROOT / 'venv/Lib/site-packages/pyaudio.py').exists() else []),
+    ] + (['pyaudio'] if (
+        (ROOT / 'venv/Lib/site-packages/pyaudio.py').exists() or     # flat layout
+        (ROOT / 'venv/Lib/site-packages/pyaudio').is_dir()           # package layout
+    ) else []),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
