@@ -1379,9 +1379,13 @@ class AutoCADScribeAgent:
             return self._seq
 
     def _write_event(self, **kwargs) -> None:
-        """Queue an event for async batch write — never blocks the caller."""
+        """Queue an event for async batch write — never blocks the caller.
+
+        Pass seq=<int> to use a pre-allocated sequence number (e.g. when the
+        caller needs to later UPDATE the row via _write_voice_update).
+        """
         kwargs.setdefault("timestamp", _utcnow())
-        kwargs["seq"] = self._next_seq()
+        kwargs.setdefault("seq", self._next_seq())   # don't override if caller supplied one
         self._write_queue.put(kwargs)
 
     def _writer_loop(self) -> None:
@@ -1414,6 +1418,21 @@ class AutoCADScribeAgent:
             return
         try:
             for kwargs in batch:
+                # ── Voice UPDATE (back-fill voice text after async transcription) ──
+                if kwargs.get("_voice_update"):
+                    self._conn.execute(
+                        "UPDATE scribe_events SET voice_text=?, voice_confidence=?"
+                        " WHERE session_id=? AND seq=?",
+                        (
+                            kwargs.get("voice_text"),
+                            kwargs.get("voice_confidence"),
+                            kwargs["session_id"],
+                            kwargs["seq"],
+                        ),
+                    )
+                    continue
+
+                # ── Normal INSERT ────────────────────────────────────────────────
                 annotations = kwargs.pop("_annotations", None)
                 cols = ", ".join(kwargs.keys())
                 ph   = ", ".join("?" * len(kwargs))
@@ -1482,6 +1501,10 @@ class AutoCADScribeAgent:
             except Exception as exc:
                 logger.warning("voice snapshot failed: %s", exc)
 
+        # Pre-allocate seq so the screenshot row is identifiable for a later
+        # voice UPDATE, even though the write is async.
+        pre_seq = self._next_seq()
+
         def _do():
             # 1. Take screenshot
             ts  = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
@@ -1489,27 +1512,17 @@ class AutoCADScribeAgent:
             if not rel:
                 return
 
-            # 2. Transcribe per-frame voice snapshot (blocking but in a daemon thread)
-            voice_text = None
-            voice_conf = None
-            if pcm_snapshot:
-                logger.debug("transcribing per-frame voice (%d bytes)", len(pcm_snapshot))
-                text, conf = _transcribe_pcm(pcm_snapshot)
-                logger.debug("per-frame voice result: %r (conf=%.2f)", text[:60] if text else "", conf)
-                if text:
-                    voice_text = text
-                    voice_conf = round(conf, 3)
-            else:
-                logger.debug("per-frame voice: no audio snapshot (voice=%s)", voice is not None)
-
-            # 3. Write screenshot event (with optional voice + click circle)
+            # 2. Write screenshot event IMMEDIATELY — voice_text filled in later.
+            #    This makes the frame visible in the editor without waiting for
+            #    Azure Whisper (which can take up to 60 s on a slow connection).
             event_kwargs = dict(
+                seq=pre_seq,
                 session_id=rid,
                 event_type="screenshot",
                 screenshot_path=rel,
                 annotation=trigger,
-                voice_text=voice_text,
-                voice_confidence=voice_conf,
+                voice_text=None,
+                voice_confidence=None,
             )
             if click_pos is not None:
                 cx = max(0.0, min(1.0, click_pos[0]))
@@ -1524,6 +1537,22 @@ class AutoCADScribeAgent:
                 }
                 event_kwargs["_annotations"] = json.dumps([shape])
             self._write_event(**event_kwargs)
+
+            # 3. Transcribe per-frame voice (may block up to 60 s — runs here in
+            #    the daemon thread so it never delays screenshot capture or COM events).
+            if pcm_snapshot:
+                logger.debug("transcribing per-frame voice (%d bytes)", len(pcm_snapshot))
+                text, conf = _transcribe_pcm(pcm_snapshot)
+                logger.debug("per-frame voice result: %r (conf=%.2f)", text[:60] if text else "", conf)
+                if text:
+                    # Back-fill voice text via UPDATE so the frame is not delayed.
+                    self._write_queue.put({
+                        "_voice_update":  True,
+                        "session_id":     rid,
+                        "seq":            pre_seq,
+                        "voice_text":     text,
+                        "voice_confidence": round(conf, 3),
+                    })
 
         threading.Thread(target=_do, daemon=True).start()
 
