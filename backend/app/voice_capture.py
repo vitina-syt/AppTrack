@@ -220,13 +220,21 @@ class VoiceCapture:
 
     def _capture_loop(self) -> None:
         pa = pyaudio.PyAudio()
-        stream = pa.open(
-            format=self.FORMAT,
-            channels=self.CHANNELS,
-            rate=self.RATE,
-            input=True,
-            frames_per_buffer=self.CHUNK,
-        )
+        stream = None
+        try:
+            stream = pa.open(
+                format=self.FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                input=True,
+                frames_per_buffer=self.CHUNK,
+            )
+        except Exception as exc:
+            logger.warning("Voice capture: failed to open audio stream (%s) — recording disabled", exc)
+            pa.terminate()
+            with self._lock:
+                self._running = False
+            return
 
         frames_in_segment: List[bytes] = []
         silent_frames = 0
