@@ -31,21 +31,28 @@ def _pywin32_dlls():
 import certifi as _certifi
 
 def _portaudio_bins():
-    """Find _portaudio.pyd regardless of Python version or pyaudio layout."""
+    """Find _portaudio.pyd and portaudio_x64.dll regardless of pyaudio layout.
+
+    pyaudio on Windows ships both _portaudio.pyd (the Python extension) and
+    portaudio_x64.dll (the PortAudio runtime).  Both must be bundled or
+    pa.open() will fail at runtime even though 'import pyaudio' succeeds.
+    """
     results = []
     sp_dir = ROOT / 'venv' / 'Lib' / 'site-packages'
 
-    # pyaudio >= 0.2.14: package layout  (site-packages/pyaudio/_portaudio.cpXX.pyd)
+    # pyaudio >= 0.2.14: package layout  (site-packages/pyaudio/)
     pkg_dir = sp_dir / 'pyaudio'
     if pkg_dir.is_dir():
         for f in pkg_dir.iterdir():
-            if f.name.startswith('_portaudio') and f.suffix == '.pyd':
+            if f.suffix in ('.pyd', '.dll'):
                 results.append((str(f), 'pyaudio'))
         return results
 
     # pyaudio <= 0.2.13: flat layout  (site-packages/_portaudio.cpXX.pyd + pyaudio.py)
     for f in sp_dir.iterdir():
-        if f.name.startswith('_portaudio') and f.suffix == '.pyd':
+        if f.name.startswith('_portaudio') and f.suffix in ('.pyd', '.dll'):
+            results.append((str(f), '.'))
+        if f.name.lower().startswith('portaudio') and f.suffix == '.dll':
             results.append((str(f), '.'))
     flat_py = sp_dir / 'pyaudio.py'
     if flat_py.exists():
