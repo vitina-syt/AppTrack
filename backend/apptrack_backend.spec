@@ -163,6 +163,8 @@ a = Analysis(
         # ── Email (stdlib extension sometimes missed) ─────────────────────
         'email.mime.text',
         'email.mime.multipart',
+        # ── stdlib modules PyInstaller misses ────────────────────────────────
+        'wave',
     ] + (['pyaudio'] if (
         (ROOT / 'venv/Lib/site-packages/pyaudio.py').exists() or     # flat layout
         (ROOT / 'venv/Lib/site-packages/pyaudio').is_dir()           # package layout
