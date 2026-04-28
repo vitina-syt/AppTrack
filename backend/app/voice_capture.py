@@ -85,7 +85,9 @@ def _transcribe_file(wav_path: str) -> tuple[str, float]:
 
     try:
         import httpx, certifi
+        logger.info("Whisper: opening wav %s", wav_path)
         with open(wav_path, "rb") as f:
+            logger.info("Whisper: posting to Azure (key=%s...)", azure_key[:8])
             resp = httpx.post(
                 _AZURE_WHISPER_ENDPOINT,
                 headers={"api-key": azure_key},
@@ -93,12 +95,13 @@ def _transcribe_file(wav_path: str) -> tuple[str, float]:
                 timeout=60,
                 verify=certifi.where(),
             )
+        logger.info("Whisper: response status=%s", resp.status_code)
         resp.raise_for_status()
         text = resp.json().get("text", "").strip()
-        logger.debug("Azure Whisper: text=%r", text[:80])
+        logger.info("Whisper: text=%r", text[:80])
         return text, 0.95
     except Exception as exc:
-        logger.warning("Azure Whisper API failed: %s", exc)
+        logger.warning("Azure Whisper API failed: %s", exc, exc_info=True)
         return "", 0.0
 
 

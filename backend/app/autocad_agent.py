@@ -1545,7 +1545,11 @@ class AutoCADScribeAgent:
             #    while this transcription can finish well after the session ends.
             if pcm_snapshot:
                 logger.info("transcribing per-frame voice (%d bytes)", len(pcm_snapshot))
-                text, conf = _transcribe_pcm(pcm_snapshot)
+                try:
+                    text, conf = _transcribe_pcm(pcm_snapshot)
+                except Exception as _te:
+                    logger.warning("per-frame transcription exception: %s", _te, exc_info=True)
+                    text, conf = "", 0.0
                 logger.info("per-frame voice result: %r (conf=%.2f)", text[:60] if text else "", conf)
                 if text:
                     try:
