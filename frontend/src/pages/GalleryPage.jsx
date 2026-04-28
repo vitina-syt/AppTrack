@@ -7,7 +7,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Table, Tag, ConfigProvider, theme as antTheme, Tooltip, Popconfirm } from 'antd'
-import { getGallery, deleteGalleryItem, localUrl } from '../api'
+import { getGallery, deleteGalleryItem, syncPushSession, localUrl } from '../api'
+import { useSettingsStore } from '../store/settingsStore'
 import { useT } from '../hooks/useT'
 
 // ── Ant Design dark theme ─────────────────────────────────────────────────────
@@ -90,19 +91,26 @@ function fmt(ts) {
 // ── GalleryPage ────────────────────────────────────────────────────────────────
 
 export default function GalleryPage() {
-  const navigate = useNavigate()
-  const t = useT()
+  const navigate  = useNavigate()
+  const t         = useT()
+  const serverUrl = useSettingsStore(s => s.serverUrl)
   const [data,            setData]            = useState([])
   const [loading,         setLoading]         = useState(true)
   const [search,          setSearch]          = useState('')
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const [batchDeleting,   setBatchDeleting]   = useState(false)
+  const [syncStates,      setSyncStates]      = useState({})  // {id: 'syncing'|'done'|'error'}
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const list = await getGallery()
       setData(list)
+      const initial = {}
+      list.forEach(r => {
+        if (r.sync_status === 'synced') initial[r.id] = 'done'
+      })
+      setSyncStates(initial)
     } catch (_) {}
     finally { setLoading(false) }
   }, [])
@@ -116,6 +124,17 @@ export default function GalleryPage() {
       setSelectedRowKeys(prev => prev.filter(k => k !== id))
     } catch (e) {
       alert(e?.response?.data?.detail || String(e))
+    }
+  }
+
+  async function handleSync(id) {
+    if (!serverUrl) return
+    setSyncStates(prev => ({ ...prev, [id]: 'syncing' }))
+    try {
+      await syncPushSession(id, serverUrl)
+      setSyncStates(prev => ({ ...prev, [id]: 'done' }))
+    } catch (_) {
+      setSyncStates(prev => ({ ...prev, [id]: 'error' }))
     }
   }
 
@@ -279,6 +298,34 @@ export default function GalleryPage() {
       render: v => <span style={{ color: 'var(--text-s)', fontSize: 12 }}>{fmt(v)}</span>,
     },
     {
+      title: t.gal_col_sync,
+      key: 'sync',
+      width: 110,
+      align: 'center',
+      render: (_, r) => {
+        if (!serverUrl) {
+          return <span style={{ fontSize: 11, color: '#565f89' }}>{t.gal_sync_no_server}</span>
+        }
+        const st = syncStates[r.id]
+        if (st === 'syncing') {
+          return <span style={{ fontSize: 11, color: '#e0af68' }}>{t.gal_sync_ing}</span>
+        }
+        if (st === 'done') {
+          return <span style={{ fontSize: 11, color: '#9ece6a', fontWeight: 700 }}>✓ {t.gal_sync_done}</span>
+        }
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <button style={sa.btnSync} onClick={() => handleSync(r.id)}>
+              {t.gal_sync_btn}
+            </button>
+            {st === 'error' && (
+              <span style={{ fontSize: 10, color: '#f7768e' }}>{t.gal_sync_error}</span>
+            )}
+          </div>
+        )
+      },
+    },
+    {
       title: t.gal_col_actions,
       key: 'actions',
       width: 160,
@@ -287,8 +334,7 @@ export default function GalleryPage() {
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Edit frames */}
           <button style={sa.btnEdit}
-            onClick={() => navigate(`/gallery/editor/${r.id}`,
-              { state: { backTo: '/gallery' } })}>
+            onClick={() => navigate(`/gallery/editor/${r.id}`, { state: { backTo: '/gallery' } })}>
             {t.gal_edit}
           </button>
 
@@ -489,6 +535,11 @@ const sa = {
   },
   batchCount: {
     color: '#f7768e', fontWeight: 700, fontSize: 13, flex: 1,
+  },
+  btnSync: {
+    padding: '4px 10px', background: '#7aa2f722',
+    border: '1px solid #7aa2f744', borderRadius: 6,
+    color: '#7aa2f7', fontSize: 12, cursor: 'pointer', fontWeight: 600,
   },
   btnBatchDel: {
     padding: '5px 14px', background: '#f7768e22',

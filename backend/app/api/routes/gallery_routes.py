@@ -53,17 +53,29 @@ class GalleryItem(BaseModel):
     video_type:       Optional[str]
     video_size_mb:    Optional[float]
     narration_text:   Optional[str]
+    sync_status:      Optional[str]
+
+
+def _ensure_sync_column() -> None:
+    """Add sync_status column if it doesn't exist (mirrors sync_routes logic)."""
+    conn = get_conn()
+    try:
+        conn.execute("ALTER TABLE scribe_sessions ADD COLUMN sync_status TEXT DEFAULT 'local'")
+        conn.commit()
+    except Exception:
+        pass
 
 
 @router.get("", response_model=List[GalleryItem])
 def list_gallery(limit: int = 200, offset: int = 0):
     """Return all scribe sessions enriched with frame / video metadata."""
+    _ensure_sync_column()
     conn = get_conn()
     rows = conn.execute(
         """
         SELECT
             s.id, s.title, s.target_app, s.started_at, s.ended_at,
-            s.status, s.narration_text,
+            s.status, s.narration_text, s.sync_status,
             (SELECT COUNT(*) FROM scribe_events e
              WHERE e.session_id = s.id AND e.event_type = 'screenshot') AS screenshot_count,
             (SELECT COUNT(*) FROM frame_annotations fa
@@ -88,6 +100,7 @@ def list_gallery(limit: int = 200, offset: int = 0):
             screenshot_count=r["screenshot_count"],
             frame_count=r["frame_count"],
             narration_text=r["narration_text"],
+            sync_status=r["sync_status"] or "local",
             **info,
         ))
     return items

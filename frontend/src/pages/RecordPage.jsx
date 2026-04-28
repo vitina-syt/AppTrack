@@ -14,9 +14,7 @@ import {
   getRunningWindows,
   startAutoCAD, stopAutoCAD, getAutoCADStatus,
   getAutoCADSession, regenerateAutoCADNarration,
-  generateAutoCADVideo, getAutoCADVideoStatus,
   micCheck,
-  syncPushSession,
   localUrl,
 } from '../api'
 import { useSettingsStore } from '../store/settingsStore'
@@ -53,8 +51,6 @@ const ANT_THEME = {
 export default function RecordPage() {
   const navigate = useNavigate()
   const language  = useSettingsStore(s => s.language)
-  const serverUrl = useSettingsStore(s => s.serverUrl)
-  const syncAuto  = useSettingsStore(s => s.syncAuto)
   const t = useT()
 
   // wizard
@@ -86,14 +82,6 @@ export default function RecordPage() {
   const [session,         setSession]         = useState(null)
   const [narrationLoading,setNarLoading]      = useState(false)
 
-  // step 4: video
-  const [videoStatus, setVideoStatus] = useState(null)  // null|generating|ready|error
-  const [videoDiag,   setVideoDiag]   = useState(null)
-
-  // sync
-  const [syncStatus, setSyncStatus] = useState(null)  // null|syncing|done|error
-  const [syncMsg,    setSyncMsg]    = useState('')
-
   const pollRef  = useRef(null)
   const isAcad   = targetExe.toLowerCase().includes('acad')
   const isCreo   = ['xtop', 'creo'].some(k => targetExe.toLowerCase().includes(k))
@@ -105,7 +93,6 @@ export default function RecordPage() {
     { title: t.rec_step1_title, description: t.rec_step1_desc },
     { title: t.rec_step2_title, description: t.rec_step2_desc },
     { title: t.rec_step3_title, description: t.rec_step3_desc },
-    { title: t.rec_step4_title, description: t.rec_step4_desc },
   ]
 
   // ── Init: refresh app list + restore in-progress session ──────────────────
@@ -191,14 +178,6 @@ export default function RecordPage() {
       setSession(sess)
       setAgentStatus(prev => ({ ...prev, running: false }))
       setStep(3)
-      // Auto-sync if configured
-      if (syncAuto && serverUrl && sessionId) {
-        setSyncStatus('syncing')
-        setSyncMsg('')
-        syncPushSession(sessionId, serverUrl)
-          .then(r => { setSyncStatus('done'); setSyncMsg(`已自动同步，服务器会话 #${r.server_session_id}`) })
-          .catch(e => { setSyncStatus('error'); setSyncMsg(e?.response?.data?.detail || String(e)) })
-      }
     } catch (e) {
       alert(e?.response?.data?.detail || String(e))
     } finally {
@@ -227,48 +206,6 @@ export default function RecordPage() {
     } catch (e) {
       setNarLoading(false)
       alert(e?.response?.data?.detail || String(e))
-    }
-  }
-
-  async function handleGenerateVideo() {
-    setVideoStatus('generating')
-    setVideoDiag(null)
-    try {
-      await generateAutoCADVideo(sessionId)
-      const poll = async () => {
-        try {
-          const s = await getAutoCADVideoStatus(sessionId)
-          setVideoDiag(s)
-          if (s.status === 'ready') { setVideoStatus('ready'); return }
-          if (s.status === 'error') { setVideoStatus('error'); return }
-        } catch (_) {}
-        setTimeout(poll, 2000)
-      }
-      setTimeout(poll, 1000)
-    } catch { setVideoStatus('error') }
-  }
-
-  async function handleRefreshVideoStatus() {
-    if (!sessionId) return
-    try {
-      const s = await getAutoCADVideoStatus(sessionId)
-      setVideoDiag(s)
-      if (s.status === 'ready') setVideoStatus('ready')
-      if (s.status === 'error') setVideoStatus('error')
-    } catch (_) {}
-  }
-
-  async function handleSync() {
-    if (!sessionId || !serverUrl) return
-    setSyncStatus('syncing')
-    setSyncMsg('')
-    try {
-      const result = await syncPushSession(sessionId, serverUrl)
-      setSyncStatus('done')
-      setSyncMsg(`已同步至服务器，服务器会话 #${result.server_session_id}`)
-    } catch (e) {
-      setSyncStatus('error')
-      setSyncMsg(e?.response?.data?.detail || String(e))
     }
   }
 
@@ -340,17 +277,7 @@ export default function RecordPage() {
             onOpenEditor={() =>
               navigate(`/record/editor/${sessionId}`, { state: { backTo: '/record' } })
             }
-            onBack={() => goTo(2)} onNext={() => setStep(4)}
-          />
-        )}
-        {step === 4 && (
-          <StepVideo
-            sessionId={sessionId} videoStatus={videoStatus} videoDiag={videoDiag}
-            onGenerate={handleGenerateVideo} onRefresh={handleRefreshVideoStatus}
-            onBack={() => goTo(3)}
-            serverUrl={serverUrl}
-            syncStatus={syncStatus} syncMsg={syncMsg}
-            onSync={handleSync}
+            onBack={() => goTo(2)}
           />
         )}
       </div>
@@ -735,7 +662,7 @@ function StepMonitor({ isRunning, agentStatus, starting, stopping, onStart, onSt
 
 // ── Step 3: Edit ──────────────────────────────────────────────────────────────
 
-function StepEdit({ sessionId, onOpenEditor, onBack, onNext }) {
+function StepEdit({ sessionId, onOpenEditor, onBack }) {
   const t = useT()
 
   return (
@@ -754,135 +681,6 @@ function StepEdit({ sessionId, onOpenEditor, onBack, onNext }) {
           onClick={onOpenEditor} disabled={!sessionId}>
           {t.rec_edit_open_editor}
         </button>
-      </div>
-
-      <div style={s.navRow}>
-        <button style={s.btnSecondary} onClick={onBack}>{t.rec_back}</button>
-        <button style={s.btnPrimary} onClick={onNext} disabled={!sessionId}>
-          {t.rec_next}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Step 4: Generate Video ────────────────────────────────────────────────────
-
-function StepVideo({ sessionId, videoStatus, videoDiag, onGenerate, onRefresh, onBack,
-                     serverUrl, syncStatus, syncMsg, onSync }) {
-  const t = useT()
-
-  const syncBtnLabel = syncStatus === 'syncing' ? '同步中…'
-                     : syncStatus === 'done'    ? '重新同步'
-                     : '同步至服务器'
-
-  return (
-    <div>
-      <h2 style={s.stepTitle}>{t.rec_vid_title}</h2>
-      <p style={s.stepDesc}>{t.rec_vid_desc}</p>
-
-      {/* ── Server Sync card ── */}
-      <div style={s.card}>
-        <div style={s.cardTitle}>服务器同步</div>
-        {!serverUrl ? (
-          <p style={{ fontSize: 13, color: 'var(--text-s)', margin: 0 }}>
-            未配置服务器地址。请前往 <strong>设置</strong> 页面填写服务器 URL。
-          </p>
-        ) : (
-          <>
-            <p style={{ fontSize: 13, color: 'var(--text-s)', margin: '0 0 12px', lineHeight: 1.6 }}>
-              将本次录制会话（截图、事件、narration）打包上传至：
-              <code style={{ color: 'var(--text)', marginLeft: 4 }}>{serverUrl}</code>
-            </p>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button
-                style={{
-                  ...s.btnPrimary,
-                  background: syncStatus === 'done' ? '#9ece6a' : '#7aa2f7',
-                  opacity: syncStatus === 'syncing' ? 0.6 : 1,
-                }}
-                onClick={onSync}
-                disabled={syncStatus === 'syncing' || !sessionId}>
-                {syncBtnLabel}
-              </button>
-              {syncMsg && (
-                <span style={{ fontSize: 12, color: syncStatus === 'error' ? '#f7768e' : '#9ece6a' }}>
-                  {syncMsg}
-                </span>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      <div style={s.card}>
-        <div style={s.cardTitle}>{t.rec_vid_compose}</div>
-
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-          <button style={s.btnPrimary} onClick={onGenerate}
-            disabled={videoStatus === 'generating' || !sessionId}>
-            {videoStatus === 'generating' ? t.rec_vid_generating : t.rec_vid_generate}
-          </button>
-          <button style={s.btnSecondary} onClick={onRefresh} disabled={!sessionId}>
-            {t.rec_vid_refresh}
-          </button>
-          {videoStatus === 'ready' && (
-            <a
-              href={localUrl(`/api/autocad/sessions/${sessionId}/video/download`)}
-              style={{ ...s.btnPrimary, background: '#9ece6a',
-                       textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {t.rec_vid_download}
-            </a>
-          )}
-        </div>
-
-        {videoStatus === 'generating' && (
-          <div style={{ ...s.hintBox, marginBottom: 12 }}>
-            {t.rec_vid_hint_generating}
-          </div>
-        )}
-        {videoStatus === 'ready' && (
-          <div style={{ ...s.infoBox, marginBottom: 12 }}>
-            {t.rec_vid_hint_ready}
-          </div>
-        )}
-        {videoStatus === 'error' && (
-          <div style={{ ...s.errorBox, marginBottom: 12 }}>
-            {videoDiag?.error || t.rec_vid_hint_error}
-          </div>
-        )}
-
-        {videoDiag && (
-          <div style={s.diagBox}>
-            {[
-              [t.rec_vid_diag_status,  videoDiag.status,
-               videoDiag.status === 'ready' ? '#9ece6a' : videoDiag.status === 'error' ? '#f7768e' : '#e0af68'],
-              [t.rec_vid_diag_disk,    `${videoDiag.screenshot_count}${videoDiag.screenshot_count === 0 ? '  ← missing' : ''}`,
-               videoDiag.screenshot_count === 0 ? '#f7768e' : '#9ece6a'],
-              [t.rec_vid_diag_db,      `${videoDiag.db_screenshot_count ?? 0}${(videoDiag.db_screenshot_count ?? 0) === 0 ? '  ← mss not working' : ''}`,
-               (videoDiag.db_screenshot_count ?? 0) === 0 ? '#f7768e' : '#9ece6a'],
-              ['mss',    videoDiag.env?.mss    ? '✓ installed' : '✗ not installed — pip install mss',
-               videoDiag.env?.mss    ? '#9ece6a' : '#f7768e'],
-              ['ffmpeg', videoDiag.env?.ffmpeg ? '✓ installed (MP4)' : '✗ not found (will generate GIF)',
-               videoDiag.env?.ffmpeg ? '#9ece6a' : '#e0af68'],
-              ['Pillow', videoDiag.env?.pillow ? '✓ installed' : '✗ not installed — pip install Pillow',
-               videoDiag.env?.pillow ? '#9ece6a' : '#f7768e'],
-            ].map(([k, v, c]) => (
-              <div key={k} style={s.diagRow}>
-                <span style={s.diagKey}>{k}</span>
-                <span style={{ color: c, fontSize: 12 }}>{v}</span>
-              </div>
-            ))}
-            {videoDiag.screenshots_dir && (
-              <div style={s.diagRow}>
-                <span style={s.diagKey}>{t.rec_vid_diag_dir}</span>
-                <code style={{ fontSize: 11, color: 'var(--text-s)', wordBreak: 'break-all' }}>
-                  {videoDiag.screenshots_dir}
-                </code>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       <div style={s.navRow}>

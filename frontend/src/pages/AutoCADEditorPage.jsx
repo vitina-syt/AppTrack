@@ -328,7 +328,11 @@ export default function AutoCADEditorPage() {
 
     async function poll() {
       if (!mounted) return
-      if (Date.now() - started >= MAX_MS) { setVoiceLoading(false); return }
+      if (Date.now() - started >= MAX_MS) {
+        localStorage.setItem(`voice_done_${sessionId}`, 'true')
+        setVoiceLoading(false)
+        return
+      }
       try {
         const data    = await listFrames(sessionId)
         if (!mounted) return
@@ -340,10 +344,17 @@ export default function AutoCADEditorPage() {
           const fresh = data.find(d => d.event_id === f.event_id)
           return fresh ? { ...f, voice_text: fresh.voice_text ?? null, voice_confidence: fresh.voice_confidence ?? null } : f
         }))
-        if (pending === 0) { setVoiceLoading(false); return }
+        if (pending === 0) {
+          localStorage.setItem(`voice_done_${sessionId}`, 'true')
+          setVoiceLoading(false)
+          return
+        }
         timer = setTimeout(poll, POLL_MS)
       } catch { setVoiceLoading(false) }
     }
+
+    const VOICE_KEY = `voice_done_${sessionId}`
+    const voiceDone = localStorage.getItem(VOICE_KEY) === 'true'
 
     listFrames(sessionId).then(data => {
       if (!mounted) return
@@ -351,7 +362,12 @@ export default function AutoCADEditorPage() {
       const pending = mapped.filter(f => f.voice_text === null).length
       setFrames(mapped)
       setVoicePending(pending)
-      if (pending > 0) { setVoiceLoading(true); timer = setTimeout(poll, POLL_MS) }
+      if (!voiceDone && pending > 0) {
+        setVoiceLoading(true)
+        timer = setTimeout(poll, POLL_MS)
+      } else if (pending === 0) {
+        localStorage.setItem(VOICE_KEY, 'true')
+      }
     }).catch(() => {})
 
     getAutoCADSession(sessionId).then(s => setNarrationText(s.narration_text ?? '')).catch(() => {})
