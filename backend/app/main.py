@@ -57,6 +57,27 @@ def _load_dotenv():
 
 _load_dotenv()
 
+# Write logs to a file so they are visible in packaged Electron builds
+# (where there is no terminal to see Python stdout).
+# Log file: %LOCALAPPDATA%\AppTrack\apptrack.log  (Windows)
+def _setup_file_logging():
+    try:
+        log_dir = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "AppTrack"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "apptrack.log"
+        file_handler = logging.FileHandler(str(log_file), encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"
+        ))
+        logging.getLogger().addHandler(file_handler)
+        logging.getLogger().info("Log file: %s", log_file)
+    except Exception:
+        pass
+
+logging.basicConfig(level=logging.INFO)
+_setup_file_logging()
+
 from app.database import init_db
 from app.api.routes import editor_routes, gallery_routes, sync_routes
 
@@ -72,8 +93,6 @@ except Exception as _e:
     _util_routes    = None   # type: ignore
     _RECORDING_AVAILABLE = False
     logging.warning("Recording routes unavailable (running in server mode): %s", _e)
-
-logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
