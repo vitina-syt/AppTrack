@@ -100,6 +100,7 @@ def enforce_session_limit(conn) -> None:
     """Delete oldest sessions when total count exceeds SESSION_LIMIT.
 
     Call this after inserting a new session (while holding the same connection).
+    Uses positional row access so it works regardless of row_factory setting.
     """
     rows = conn.execute(
         "SELECT id, screenshot_dir FROM scribe_sessions ORDER BY started_at ASC"
@@ -108,14 +109,16 @@ def enforce_session_limit(conn) -> None:
     if excess <= 0:
         return
     for row in rows[:excess]:
-        folder = Path(row["screenshot_dir"])
-        if folder.exists():
+        sid   = row[0]
+        s_dir = row[1]
+        folder = Path(s_dir) if s_dir else None
+        if folder and folder.exists():
             shutil.rmtree(folder, ignore_errors=True)
-        video_dir = _VIDEO_BASE / str(row["id"])
+        video_dir = _VIDEO_BASE / str(sid)
         if video_dir.exists():
             shutil.rmtree(video_dir, ignore_errors=True)
-        conn.execute("DELETE FROM scribe_sessions WHERE id=?", (row["id"],))
-        logger.info("Session limit: evicted oldest session #%s", row["id"])
+        conn.execute("DELETE FROM scribe_sessions WHERE id=?", (sid,))
+        logger.info("Session limit: evicted oldest session #%s", sid)
     conn.commit()
 
 
