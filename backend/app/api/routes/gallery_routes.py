@@ -93,6 +93,32 @@ def list_gallery(limit: int = 200, offset: int = 0):
     return items
 
 
+SESSION_LIMIT = 20
+
+
+def enforce_session_limit(conn) -> None:
+    """Delete oldest sessions when total count exceeds SESSION_LIMIT.
+
+    Call this after inserting a new session (while holding the same connection).
+    """
+    rows = conn.execute(
+        "SELECT id, screenshot_dir FROM scribe_sessions ORDER BY started_at ASC"
+    ).fetchall()
+    excess = len(rows) - SESSION_LIMIT
+    if excess <= 0:
+        return
+    for row in rows[:excess]:
+        folder = Path(row["screenshot_dir"])
+        if folder.exists():
+            shutil.rmtree(folder, ignore_errors=True)
+        video_dir = _VIDEO_BASE / str(row["id"])
+        if video_dir.exists():
+            shutil.rmtree(video_dir, ignore_errors=True)
+        conn.execute("DELETE FROM scribe_sessions WHERE id=?", (row["id"],))
+        logger.info("Session limit: evicted oldest session #%s", row["id"])
+    conn.commit()
+
+
 @router.delete("/{session_id}")
 def delete_gallery_item(session_id: int):
     conn = get_conn()

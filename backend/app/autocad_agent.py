@@ -1122,6 +1122,9 @@ class AutoCADScribeAgent:
         sid = cur.lastrowid
         self._session_id = sid
 
+        from app.api.routes.gallery_routes import enforce_session_limit
+        enforce_session_limit(self._conn)
+
         folder = SCREENSHOTS_BASE / str(sid)
         folder.mkdir(parents=True, exist_ok=True)
         self._screenshot_folder = folder

@@ -303,6 +303,9 @@ async def receive_session(request: Request):
         logger.exception("receive_session failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Import failed: {exc}")
 
+    from app.api.routes.gallery_routes import enforce_session_limit
+    enforce_session_limit(conn)
+
     logger.info("Received session from %s (origin #%s) → local #%s",
                 origin_host, origin_session_id, new_session_id)
     return {"ok": True, "session_id": new_session_id}

@@ -92,9 +92,11 @@ function fmt(ts) {
 export default function GalleryPage() {
   const navigate = useNavigate()
   const t = useT()
-  const [data,    setData]    = useState([])
-  const [loading, setLoading] = useState(true)
-  const [search,  setSearch]  = useState('')
+  const [data,            setData]            = useState([])
+  const [loading,         setLoading]         = useState(true)
+  const [search,          setSearch]          = useState('')
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  const [batchDeleting,   setBatchDeleting]   = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -111,9 +113,23 @@ export default function GalleryPage() {
     try {
       await deleteGalleryItem(id)
       setData(prev => prev.filter(r => r.id !== id))
+      setSelectedRowKeys(prev => prev.filter(k => k !== id))
     } catch (e) {
       alert(e?.response?.data?.detail || String(e))
     }
+  }
+
+  async function handleBatchDelete() {
+    setBatchDeleting(true)
+    const ids = [...selectedRowKeys]
+    for (const id of ids) {
+      try {
+        await deleteGalleryItem(id)
+        setData(prev => prev.filter(r => r.id !== id))
+      } catch (_) {}
+    }
+    setSelectedRowKeys([])
+    setBatchDeleting(false)
   }
 
   // ── Filter ────────────────────────────────────────────────────────────────
@@ -338,6 +354,12 @@ export default function GalleryPage() {
         ))}
       </div>
 
+      {/* Limit hint */}
+      <div style={sa.limitHint}>
+        <span style={{ color: '#e0af68', marginRight: 6 }}>⚠</span>
+        {t.gal_limit_hint}
+      </div>
+
       {/* Search */}
       <div style={sa.searchRow}>
         <input
@@ -351,6 +373,32 @@ export default function GalleryPage() {
         )}
       </div>
 
+      {/* Batch action bar */}
+      {selectedRowKeys.length > 0 && (
+        <div style={sa.batchBar}>
+          <span style={sa.batchCount}>
+            {typeof t.gal_batch_selected === 'function'
+              ? t.gal_batch_selected(selectedRowKeys.length)
+              : t.gal_batch_selected}
+          </span>
+          <button style={sa.btnClear} onClick={() => setSelectedRowKeys([])}>
+            {t.gal_delete_cancel}
+          </button>
+          <Popconfirm
+            title={t.gal_batch_delete_title}
+            description={t.gal_batch_delete_desc}
+            okText={t.gal_delete_ok}
+            cancelText={t.gal_delete_cancel}
+            okButtonProps={{ danger: true }}
+            onConfirm={handleBatchDelete}
+          >
+            <button style={sa.btnBatchDel} disabled={batchDeleting}>
+              {batchDeleting ? '…' : t.gal_batch_delete}
+            </button>
+          </Popconfirm>
+        </div>
+      )}
+
       {/* Table */}
       <ConfigProvider theme={ANT_THEME}>
         <Table
@@ -360,6 +408,10 @@ export default function GalleryPage() {
           loading={loading}
           size="middle"
           scroll={{ x: 1100 }}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+          }}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
@@ -393,6 +445,11 @@ const sa = {
   statVal:   { fontSize: 22, fontWeight: 800, lineHeight: 1 },
   statLabel: { fontSize: 11, color: 'var(--text-s)' },
 
+  limitHint: {
+    fontSize: 12, color: '#a9b1d6',
+    background: '#e0af6811', border: '1px solid #e0af6833',
+    borderRadius: 7, padding: '6px 12px',
+  },
   searchRow: { display: 'flex', alignItems: 'center', gap: 6 },
   searchInput: {
     background: 'var(--surface)', border: '1px solid var(--border)',
@@ -424,5 +481,18 @@ const sa = {
     background: 'transparent', border: '1px solid #f7768e44',
     color: '#f7768e', borderRadius: 5, fontSize: 12,
     padding: '3px 7px', cursor: 'pointer',
+  },
+  batchBar: {
+    display: 'flex', alignItems: 'center', gap: 10,
+    padding: '8px 14px', borderRadius: 8,
+    background: '#f7768e11', border: '1px solid #f7768e33',
+  },
+  batchCount: {
+    color: '#f7768e', fontWeight: 700, fontSize: 13, flex: 1,
+  },
+  btnBatchDel: {
+    padding: '5px 14px', background: '#f7768e22',
+    border: '1px solid #f7768e66', borderRadius: 6,
+    color: '#f7768e', fontSize: 13, cursor: 'pointer', fontWeight: 700,
   },
 }
