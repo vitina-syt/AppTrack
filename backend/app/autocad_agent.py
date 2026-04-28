@@ -1494,7 +1494,7 @@ class AutoCADScribeAgent:
         if voice is not None:
             try:
                 pcm_snapshot = voice.snapshot_pcm(window_secs=window_secs)
-                logger.debug(
+                logger.info(
                     "voice snapshot: trigger=%s window=%.1fs pcm=%d bytes",
                     trigger, window_secs, len(pcm_snapshot),
                 )
@@ -1544,9 +1544,9 @@ class AutoCADScribeAgent:
             #    the writer thread and self._conn are closed within 5 s of stop(),
             #    while this transcription can finish well after the session ends.
             if pcm_snapshot:
-                logger.debug("transcribing per-frame voice (%d bytes)", len(pcm_snapshot))
+                logger.info("transcribing per-frame voice (%d bytes)", len(pcm_snapshot))
                 text, conf = _transcribe_pcm(pcm_snapshot)
-                logger.debug("per-frame voice result: %r (conf=%.2f)", text[:60] if text else "", conf)
+                logger.info("per-frame voice result: %r (conf=%.2f)", text[:60] if text else "", conf)
                 if text:
                     try:
                         from app.database import DB_PATH as _DB_PATH

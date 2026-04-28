@@ -32,6 +32,8 @@ def main():
         _ca_bundle = _certifi.where()
         os.environ.setdefault("REQUESTS_CA_BUNDLE", _ca_bundle)
         os.environ.setdefault("SSL_CERT_FILE",       _ca_bundle)
+        # httpx uses certifi directly; patch the env var it checks for custom CA bundles
+        os.environ.setdefault("HTTPX_SSL_VERIFY",    _ca_bundle)
 
     import uvicorn
     uvicorn.run(

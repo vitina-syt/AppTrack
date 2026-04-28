@@ -84,13 +84,14 @@ def _transcribe_file(wav_path: str) -> tuple[str, float]:
         return "", 0.0
 
     try:
-        import httpx
+        import httpx, certifi
         with open(wav_path, "rb") as f:
             resp = httpx.post(
                 _AZURE_WHISPER_ENDPOINT,
                 headers={"api-key": azure_key},
                 files={"file": ("audio.wav", f, "audio/wav")},
                 timeout=60,
+                verify=certifi.where(),
             )
         resp.raise_for_status()
         text = resp.json().get("text", "").strip()
