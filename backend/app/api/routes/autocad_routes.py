@@ -262,8 +262,7 @@ def video_status(session_id: int):
     Diagnostic endpoint — returns generation status + environment info.
     Frontend polls this instead of using HEAD on /download.
     """
-    import shutil as _shutil
-    from app.video_export import get_job_state, get_existing_video, _screenshot_paths, _PIL
+    from app.video_export import get_job_state, get_existing_video, _screenshot_paths, _PIL, _get_ffmpeg_exe
     from app.autocad_agent import _MSS, SCREENSHOTS_BASE
     from app.database import DATA_DIR
 
@@ -310,9 +309,10 @@ def video_status(session_id: int):
         "data_dir_writable":   _data_dir_writable,
         "data_dir_error":      _data_dir_error,
         "env": {
-            "ffmpeg": _shutil.which("ffmpeg") is not None,
-            "pillow": _PIL,
-            "mss":    _MSS,
+            "ffmpeg":      _get_ffmpeg_exe() is not None,
+            "ffmpeg_path": _get_ffmpeg_exe(),
+            "pillow":      _PIL,
+            "mss":         _MSS,
         },
     }
 
