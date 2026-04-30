@@ -9,6 +9,7 @@ aiofiles==24.1.0
 mss==9.0.2
 pynput==1.7.7
 Pillow==11.2.1
+imageio-ffmpeg>=0.4.9        # bundled ffmpeg binary — no system install needed
 
 # HTTP clients
 requests>=2.32.0

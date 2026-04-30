@@ -31,6 +31,15 @@ try:
 except ImportError:
     _PIL = False
 
+# Resolve ffmpeg binary: prefer imageio-ffmpeg's bundled copy, fall back to PATH.
+def _get_ffmpeg_exe() -> str | None:
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    return shutil.which("ffmpeg")
+
 # In-memory job state: session_id → {"status": "generating"|"ready"|"error", "error": str|None}
 _job_state: dict[int, dict] = {}
 
@@ -40,7 +49,7 @@ def get_job_state(session_id: int) -> dict:
 
 
 def _ffmpeg_available() -> bool:
-    return shutil.which("ffmpeg") is not None
+    return _get_ffmpeg_exe() is not None
 
 
 def _screenshot_paths(session_id: int) -> list[Path]:
@@ -131,7 +140,7 @@ def _build_mp4(shots: list[Path], out: Path, fps: float) -> Path:
             f.write(f"file '{shots[-1].as_posix()}'\n")
 
     cmd = [
-        "ffmpeg", "-y",
+        _get_ffmpeg_exe(), "-y",
         "-f", "concat", "-safe", "0",
         "-i", str(list_file),
         "-vf", vf,
@@ -466,7 +475,7 @@ def _make_frame_clip(
         f"scale={canvas_w}:{canvas_h}:force_original_aspect_ratio=decrease,"
         f"pad={canvas_w}:{canvas_h}:(ow-iw)/2:(oh-ih)/2:color=black"
     )
-    cmd = ["ffmpeg", "-y", "-loop", "1", "-framerate", "24", "-i", str(img_path)]
+    cmd = [_get_ffmpeg_exe(), "-y", "-loop", "1", "-framerate", "24", "-i", str(img_path)]
     if audio_path:
         cmd += ["-i", str(audio_path)]
     cmd += ["-vf", vf,
@@ -673,7 +682,7 @@ def _build_narrated_inner(session_id: int, voice: str) -> tuple[Path, str]:
         out_dir = _output_dir(session_id)
         out = out_dir / f"session_{session_id}_narrated.mp4"
         result = subprocess.run(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            [_get_ffmpeg_exe(), "-y", "-f", "concat", "-safe", "0",
              "-i", str(concat_list), "-c", "copy", str(out)],
             capture_output=True, timeout=600,
         )

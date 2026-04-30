@@ -30,6 +30,15 @@ def _pywin32_dlls():
 
 import certifi as _certifi
 
+def _imageio_ffmpeg_datas():
+    """Include imageio-ffmpeg's bundled ffmpeg binary in the package."""
+    try:
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        return [(ffmpeg_exe, 'imageio_ffmpeg')]
+    except Exception:
+        return []
+
 def _portaudio_bins():
     """Find _portaudio.pyd and portaudio_x64.dll regardless of pyaudio layout.
 
@@ -69,7 +78,7 @@ a = Analysis(
         (str(ROOT / 'app'), 'app'),
         # certifi SSL certificates — required for HTTPS requests (Azure OpenAI)
         (_certifi.where(), 'certifi'),
-    ],
+    ] + _imageio_ffmpeg_datas(),
     hiddenimports=[
         # ── uvicorn internals ──────────────────────────────────────────────
         'uvicorn',
@@ -165,6 +174,8 @@ a = Analysis(
         'email.mime.multipart',
         # ── stdlib modules PyInstaller misses ────────────────────────────────
         'wave',
+        # ── imageio-ffmpeg (bundled ffmpeg binary) ────────────────────────────
+        'imageio_ffmpeg',
     ] + (['pyaudio'] if (
         (ROOT / 'venv/Lib/site-packages/pyaudio.py').exists() or     # flat layout
         (ROOT / 'venv/Lib/site-packages/pyaudio').is_dir()           # package layout
