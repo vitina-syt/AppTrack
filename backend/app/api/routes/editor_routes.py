@@ -342,10 +342,14 @@ def generate_annotated_video(
 _ALLOWED_VOICES = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
 
 
+_ALLOWED_LANGS = {"zh", "en", "de"}
+
+
 @router.post("/sessions/{session_id}/video/narrated")
 def generate_narrated_video(
     session_id: int,
     voice: str = Query(default="alloy"),
+    lang:  str = Query(default="zh", description="Subtitle / TTS language: zh | en | de"),
 ):
     """
     Generate a narrated MP4: each frame is shown for the TTS duration of its
@@ -354,6 +358,8 @@ def generate_narrated_video(
     """
     if voice not in _ALLOWED_VOICES:
         raise HTTPException(status_code=422, detail=f"voice must be one of {sorted(_ALLOWED_VOICES)}")
+    if lang not in _ALLOWED_LANGS:
+        raise HTTPException(status_code=422, detail=f"lang must be one of {sorted(_ALLOWED_LANGS)}")
 
     conn = get_conn()
     if not conn.execute("SELECT id FROM scribe_sessions WHERE id=?", (session_id,)).fetchone():
@@ -362,12 +368,12 @@ def generate_narrated_video(
     def _do():
         try:
             from app.video_export import build_narrated_video
-            build_narrated_video(session_id, voice=voice)
+            build_narrated_video(session_id, voice=voice, lang=lang)
         except Exception as exc:
             logger.error("Narrated video failed for session %d: %s", session_id, exc)
 
     threading.Thread(target=_do, daemon=True).start()
-    return {"ok": True, "session_id": session_id, "status": "generating", "voice": voice}
+    return {"ok": True, "session_id": session_id, "status": "generating", "voice": voice, "lang": lang}
 
 
 @router.get("/sessions/{session_id}/video/narrated/status")

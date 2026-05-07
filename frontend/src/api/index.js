@@ -71,7 +71,7 @@ export const updateFrame            = (id, eventId, body)   => localApi.patch(`/
 export const deleteFrame            = (id, eventId)         => localApi.delete(`/autocad/sessions/${id}/frames/${eventId}`).then(r => r.data)
 export const distributeNarration    = (id)                  => localApi.post(`/autocad/sessions/${id}/frames/distribute`).then(r => r.data)
 export const generateAnnotatedVideo = (id, fps = 1.0)       => localApi.post(`/autocad/sessions/${id}/video/annotated`, null, { params: { fps } }).then(r => r.data)
-export const generateNarratedVideo  = (id, voice = 'alloy') => localApi.post(`/autocad/sessions/${id}/video/narrated`, null, { params: { voice } }).then(r => r.data)
+export const generateNarratedVideo  = (id, voice = 'alloy', lang = 'zh') => localApi.post(`/autocad/sessions/${id}/video/narrated`, null, { params: { voice, lang } }).then(r => r.data)
 export const getNarratedVideoStatus = (id)                  => localApi.get(`/autocad/sessions/${id}/video/narrated/status`).then(r => r.data)
 
 // ── Utilities  (always local — file picker and mic are on the user's machine) ─

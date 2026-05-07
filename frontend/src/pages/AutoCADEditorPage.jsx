@@ -304,6 +304,7 @@ export default function AutoCADEditorPage() {
   const [distStatus,   setDistStatus]   = useState('')   // label shown in button while working
   const [videoState,   setVideoState]   = useState(null)  // null|generating|ready|error
   const [voice,        setVoice]        = useState('alloy')
+  const [lang,         setLang]         = useState('zh')
   const [narrationText,setNarrationText]= useState(null)  // null = not loaded yet
   const [voiceLoading, setVoiceLoading] = useState(false)
   const [voicePending, setVoicePending] = useState(0)
@@ -489,7 +490,7 @@ export default function AutoCADEditorPage() {
     await doSave()
     setVideoState('generating')
     try {
-      await generateNarratedVideo(sessionId, voice)
+      await generateNarratedVideo(sessionId, voice, lang)
       const poll = async () => {
         try {
           const s = await getNarratedVideoStatus(sessionId)
@@ -579,17 +580,28 @@ export default function AutoCADEditorPage() {
               <option key={v} value={v}>{v}</option>
             )}
           </select>
-          {videoState === 'ready'
-            ? <a href={localUrl(`/api/autocad/sessions/${sessionId}/video/narrated/download`)}
-                style={{ ...s.btnGenerate, background: '#9ece6a', textDecoration: 'none',
-                         display: 'inline-flex', alignItems: 'center' }}>
-                {t.ed_download_video}
-              </a>
-            : <button style={s.btnGenerate} onClick={handleGenerateVideo}
-                disabled={videoState === 'generating'}>
-                {videoState === 'generating' ? t.ed_generating_video : t.ed_gen_voice_video}
-              </button>
-          }
+          <select value={lang} onChange={e => setLang(e.target.value)} style={s.voiceSelect}
+            title={t.ed_lang_label}
+            disabled={videoState === 'generating'}>
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+            <option value="de">Deutsch</option>
+          </select>
+          {videoState === 'ready' && (
+            <a href={localUrl(`/api/autocad/sessions/${sessionId}/video/narrated/download`)}
+              style={{ ...s.btnGenerate, background: '#9ece6a', textDecoration: 'none',
+                       display: 'inline-flex', alignItems: 'center' }}>
+              {t.ed_download_video}
+            </a>
+          )}
+          <button style={s.btnGenerate} onClick={handleGenerateVideo}
+            disabled={videoState === 'generating'}>
+            {videoState === 'generating'
+              ? t.ed_generating_video
+              : videoState === 'ready'
+                ? t.ed_regen_video
+                : t.ed_gen_voice_video}
+          </button>
         </div>
       </header>
 

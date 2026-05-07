@@ -14,6 +14,7 @@ Public API
     # mime: "video/mp4" | "image/gif" | "application/zip"
 """
 import os
+import re
 import shutil
 import subprocess
 import zipfile
@@ -523,12 +524,134 @@ def _load_cjk_font(size: int):
     return ImageFont.load_default()
 
 
+def _draw_subtitle(img: "Image.Image", text: str) -> "Image.Image":
+    """Burn subtitle text into the bottom of *img* with a semi-transparent bar."""
+    from PIL import Image as _Img, ImageDraw
+
+    if not text.strip():
+        return img
+
+    font_size = max(20, img.height // 30)
+    font = _load_cjk_font(font_size)
+
+    # Pixel-accurate greedy word-wrap
+    _dummy = ImageDraw.Draw(_Img.new("RGB", (1, 1)))
+    max_width = int(img.width * 0.92)
+
+    def _measure(s: str) -> float:
+        try:
+            return _dummy.textlength(s, font=font)
+        except Exception:
+            return len(s) * font_size * 0.6
+
+    words = text.split()
+    lines: list[str] = []
+    cur = ""
+    for word in words:
+        candidate = (cur + " " + word).strip()
+        if _measure(candidate) <= max_width:
+            cur = candidate
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    if not lines:
+        lines = [text]
+
+    line_h = font_size + 8
+    pad = 12
+    bar_h = line_h * len(lines) + pad * 2
+    bar_top = img.height - bar_h
+
+    # Semi-transparent dark bar via RGBA composite
+    rgba = img.convert("RGBA")
+    overlay = _Img.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(overlay).rectangle(
+        [(0, bar_top), (img.width, img.height)], fill=(0, 0, 0, 170)
+    )
+    result = _Img.alpha_composite(rgba, overlay).convert("RGB")
+
+    draw = ImageDraw.Draw(result)
+    cx = img.width // 2
+    for i, line in enumerate(lines):
+        y = bar_top + pad + i * line_h
+        draw.text((cx + 1, y + 1), line, font=font, fill=(0, 0, 0), anchor="mt")
+        draw.text((cx, y), line, font=font, fill=(255, 255, 255), anchor="mt")
+
+    return result
+
+
+_LANG_NAMES = {"zh": "Chinese", "en": "English", "de": "German"}
+
+
+def _detect_lang(text: str) -> str:
+    """Heuristic language detection for zh / de / en based on character distribution."""
+    text = text.strip()
+    if not text:
+        return "zh"
+    total = len(text)
+    cjk   = sum(1 for c in text if "一" <= c <= "鿿")
+    if cjk / total > 0.08:
+        return "zh"
+    german = sum(1 for c in text.lower() if c in "äöüß")
+    if german / total > 0.005:
+        return "de"
+    return "en"
+
+
+def _translate_narrations(texts: list[str], lang: str) -> list[str]:
+    """Batch-translate all non-empty narration strings to *lang* in one GPT call.
+
+    Detects the source language from the narration content; skips translation
+    when source already matches target or GPT is unavailable.
+    """
+    if not any(t.strip() for t in texts):
+        return texts
+
+    # Detect source language from the first non-empty sample
+    sample = next((t for t in texts if t.strip()), "")
+    source_lang = _detect_lang(sample)
+    if source_lang == lang:
+        logger.debug("Narration already in '%s', skipping translation", lang)
+        return texts
+
+    target = _LANG_NAMES.get(lang, "English")
+    numbered = "\n".join(f"[{i + 1}] {t}" if t.strip() else f"[{i + 1}] " for i, t in enumerate(texts))
+    prompt = (
+        f"Translate the following narration texts to {target}. "
+        f"Preserve the professional tone and keep each translation concise. "
+        f"Output ONLY the numbered translations, no extra commentary.\n\n"
+        f"{numbered}"
+    )
+
+    try:
+        from app.gpt_assistant import GPTAssistant
+        gpt = GPTAssistant()
+        gpt.system_prompt = (
+            f"You are a professional translator. "
+            f"Translate tutorial narration texts accurately to {target}."
+        )
+        output = gpt.chat(prompt)
+        translated = list(texts)
+        for m in re.finditer(r"\[(\d+)\]\s*(.*?)(?=\[\d+\]|\Z)", output, re.DOTALL):
+            idx = int(m.group(1)) - 1
+            if 0 <= idx < len(texts):
+                translated[idx] = m.group(2).strip()
+        return translated
+    except Exception as exc:
+        logger.warning("Narration translation failed (%s) — using originals: %s", lang, exc)
+        return texts
+
+
 def _render_annotated_frame(
     src: Path,
     shapes: list,
     canvas_w: int,
     canvas_h: int,
     out_path: Path,
+    narration: str = "",
 ) -> None:
     """Render annotations onto the screenshot and save to out_path (JPEG)."""
     from PIL import Image, ImageDraw, ImageFilter
@@ -567,10 +690,12 @@ def _render_annotated_frame(
                     draw.text((lx, ly),          label, font=font, fill=color,    anchor="mm")
 
     img = _fit_frame(img, canvas_w, canvas_h)
+    if narration:
+        img = _draw_subtitle(img, narration)
     img.save(str(out_path), format="JPEG", quality=90)
 
 
-def build_narrated_video(session_id: int, voice: str = "alloy") -> tuple[Path, str]:
+def build_narrated_video(session_id: int, voice: str = "alloy", lang: str = "zh") -> tuple[Path, str]:
     """
     Generate a narrated MP4: each frame is displayed for the TTS duration of its
     narration text.  Frames without narration use a 4-second fallback.
@@ -585,7 +710,7 @@ def build_narrated_video(session_id: int, voice: str = "alloy") -> tuple[Path, s
     """
     _narrated_job[session_id] = {"status": "generating", "error": None}
     try:
-        result = _build_narrated_inner(session_id, voice)
+        result = _build_narrated_inner(session_id, voice, lang)
         _narrated_job[session_id] = {"status": "ready", "error": None}
         return result
     except Exception as exc:
@@ -593,7 +718,7 @@ def build_narrated_video(session_id: int, voice: str = "alloy") -> tuple[Path, s
         raise
 
 
-def _build_narrated_inner(session_id: int, voice: str) -> tuple[Path, str]:
+def _build_narrated_inner(session_id: int, voice: str, lang: str = "zh") -> tuple[Path, str]:
     if not _ffmpeg_available():
         raise ValueError("ffmpeg is required for narrated video — install ffmpeg and add to PATH")
     if not _PIL:
@@ -624,6 +749,12 @@ def _build_narrated_inner(session_id: int, voice: str) -> tuple[Path, str]:
     if not rows:
         raise ValueError("No screenshot frames found for this session")
 
+    # Batch-translate narrations before rendering (one GPT call for all frames)
+    raw_narrations = [(row["narration"] or "").strip() for row in rows]
+    narrations = _translate_narrations(raw_narrations, lang)
+    if lang != "zh":
+        logger.info("Translated %d narrations to '%s'", len(narrations), lang)
+
     # Canvas size = max(width) × max(height) across all source frames
     src_paths = [
         Path(r["screenshot_dir"]) / r["screenshot_path"]
@@ -642,12 +773,12 @@ def _build_narrated_inner(session_id: int, voice: str) -> tuple[Path, str]:
                 logger.warning("Frame %d missing: %s", i, src)
                 continue
 
-            narration = (row["narration"] or "").strip()
+            narration = narrations[i]
             shapes    = json.loads(row["shapes_json"] or "[]")
 
-            # 1. Render annotated frame
+            # 1. Render annotated frame with subtitle
             frame_path = tmp / f"{i:06d}.jpg"
-            _render_annotated_frame(src, shapes, canvas_w, canvas_h, frame_path)
+            _render_annotated_frame(src, shapes, canvas_w, canvas_h, frame_path, narration)
 
             # 2. TTS → MP3
             audio_path: Optional[Path] = None
