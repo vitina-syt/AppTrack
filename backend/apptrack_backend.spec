@@ -1,12 +1,12 @@
 # PyInstaller spec — bundles the Python backend into a single folder.
-# The resulting `dist/apptrack_backend/` directory is what electron-builder
+# The resulting `dist/StepCast_backend/` directory is what electron-builder
 # packages into the installer (see package.json extraResources).
 #
 # Usage (run from the backend/ directory):
 #   pip install pyinstaller
-#   pyinstaller apptrack_backend.spec
+#   pyinstaller StepCast_backend.spec
 #
-# Output: backend/dist/apptrack_backend/apptrack_backend.exe
+# Output: backend/dist/StepCast_backend/StepCast_backend.exe
 
 import sys
 from pathlib import Path
@@ -197,7 +197,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='apptrack_backend',
+    name='StepCast_backend',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -214,5 +214,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='apptrack_backend',
+    name='StepCast_backend',
 )

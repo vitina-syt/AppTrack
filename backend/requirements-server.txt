@@ -1,4 +1,4 @@
-# AppTrack Server Requirements
+# StepCast Server Requirements
 # For Linux server deployment — excludes Windows-only recording packages.
 # Python 3.12+
 

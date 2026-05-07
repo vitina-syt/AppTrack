@@ -285,7 +285,7 @@ def build_annotated_video(session_id: int, fps: float = 1.0) -> tuple[Path, str]
     ]
     canvas_w, canvas_h = _max_frame_size(src_paths)
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="apptrack_annotated_"))
+    temp_dir = Path(tempfile.mkdtemp(prefix="StepCast_annotated_"))
     annotated: list[Path] = []
 
     try:
@@ -632,7 +632,7 @@ def _build_narrated_inner(session_id: int, voice: str) -> tuple[Path, str]:
     ]
     canvas_w, canvas_h = _max_frame_size(src_paths)
 
-    tmp = Path(tempfile.mkdtemp(prefix="apptrack_narrated_"))
+    tmp = Path(tempfile.mkdtemp(prefix="StepCast_narrated_"))
     clips: list[Path] = []
 
     try:

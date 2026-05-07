@@ -334,7 +334,7 @@ class AutoCADMonitor:
             import win32com as _win32com
             _gen = os.path.join(
                 os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-                "AppTrack", "gen_py",
+                "StepCast", "gen_py",
             )
             os.makedirs(_gen, exist_ok=True)
             _win32com.__gen_path__ = _gen

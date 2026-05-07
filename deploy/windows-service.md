@@ -51,7 +51,7 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
 安装成功后终端会显示：
 
 ```
-Done. AppTrack is running at http://localhost:8001
+Done. StepCast is running at http://localhost:8001
 Gallery : http://localhost:8001/gallery
 API docs: http://localhost:8001/docs
 ```
@@ -70,21 +70,21 @@ API docs: http://localhost:8001/docs
 
 ```powershell
 # 查看服务状态
-nssm status AppTrack
+nssm status StepCast
 
 # 启动 / 停止 / 重启
-nssm start   AppTrack
-nssm stop    AppTrack
-nssm restart AppTrack
+nssm start   StepCast
+nssm stop    StepCast
+nssm restart StepCast
 
 # 查看实时日志
-Get-Content logs\apptrack.log -Wait -Tail 50
+Get-Content logs\StepCast.log -Wait -Tail 50
 
 # 查看错误日志
-Get-Content logs\apptrack-error.log -Tail 100
+Get-Content logs\StepCast-error.log -Tail 100
 ```
 
-也可以在「服务」管理器（`services.msc`）中找到 **AppTrack Server** 进行管理。
+也可以在「服务」管理器（`services.msc`）中找到 **StepCast Server** 进行管理。
 
 ---
 
@@ -103,7 +103,7 @@ cd frontend
 npm run build
 
 # 4. 重启服务（管理员 PowerShell）
-nssm restart AppTrack
+nssm restart StepCast
 ```
 
 ---
@@ -115,7 +115,7 @@ nssm restart AppTrack
 查看错误日志定位原因：
 
 ```powershell
-Get-Content logs\apptrack-error.log -Tail 50
+Get-Content logs\StepCast-error.log -Tail 50
 ```
 
 常见原因：

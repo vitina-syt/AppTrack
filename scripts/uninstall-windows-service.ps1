@@ -2,7 +2,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$ServiceName = "AppTrack"
+$ServiceName = "StepCast"
 
 if (-not (Get-Command nssm -ErrorAction SilentlyContinue)) {
     Write-Error "nssm not found in PATH."

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-const STORAGE_KEY = 'apptrack.settings.v1'
+const STORAGE_KEY = 'StepCast.settings.v1'
 
 function load() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) } catch { return null }
@@ -16,7 +16,7 @@ const defaults = {
   ignoredApps: ['explorer.exe', 'SearchHost.exe', 'ShellExperienceHost.exe'],
   avatarEnabled: false,   // 数字人功能开关，默认关闭
   // Server sync
-  serverUrl: '',          // central server URL, e.g. https://apptrack.example.com
+  serverUrl: '',          // central server URL, e.g. https://StepCast.example.com
   syncAuto: false,        // auto-sync after every recording stops
 }
 

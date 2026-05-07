@@ -110,7 +110,7 @@ export default function SettingsPage() {
               type="text"
               value={serverInput}
               onChange={e => setServerInput(e.target.value)}
-              placeholder="https://apptrack.example.com"
+              placeholder="https://StepCast.example.com"
               style={{ ...s.numInput, width: '100%', textAlign: 'left', padding: '7px 10px' }}
             />
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>

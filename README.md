@@ -1,4 +1,4 @@
-# AppTrack
+# StepCast
 
 Windows 桌面软件使用时长追踪工具。自动记录前台应用的切换与停留时长，数据完全本地存储，无需联网。
 
@@ -42,7 +42,7 @@ uvicorn app.main:app --port 8001 --reload
 ```
 
 后端启动时会自动：
-- 初始化 SQLite 数据库（`backend/data/apptrack.db`）
+- 初始化 SQLite 数据库（`backend/data/StepCast.db`）
 - 以 5 秒间隔启动后台追踪线程
 
 > **Demo 模式**：未安装 `pywin32` 时追踪器自动模拟 AutoCAD / Outlook / Chrome 等应用切换，便于在非 Windows 环境开发调试。
@@ -82,7 +82,7 @@ npm run dev
 │                   http://localhost:8001                  │
 │                                                         │
 │  ┌──────────────────┐   ┌──────────────────────────┐    │
-│  │   REST API 层    │   │    AppTracker 线程        │    │
+│  │   REST API 层    │   │    StepCaster 线程        │    │
 │  │                  │   │                          │    │
 │  │ /api/tracker/*   │   │  每 N 秒轮询              │    │
 │  │ /api/sessions    │◄──│  GetForegroundWindow()   │    │
@@ -91,7 +91,7 @@ npm run dev
 │           │                                             │
 │  ┌────────▼─────────────────────────────────────────┐   │
 │  │              SQLite  (WAL 模式)                   │   │
-│  │           backend/data/apptrack.db               │   │
+│  │           backend/data/StepCast.db               │   │
 │  │                                                  │   │
 │  │   sessions (id, app_name, exe_path,              │   │
 │  │             window_title, started_at,            │   │
@@ -208,14 +208,14 @@ UPDATE sessions SET ended_at = now         ← 优雅关闭当前会话
 ## 目录结构
 
 ```
-AppTrack/
+StepCast/
 ├── backend/
 │   ├── .python-version          # 3.12
 │   ├── requirements.txt
 │   └── app/
 │       ├── main.py              # FastAPI 入口 + lifespan（启停追踪器）
 │       ├── database.py          # SQLite 初始化，线程安全连接
-│       ├── tracker.py           # Win32 轮询线程（AppTracker 单例）
+│       ├── tracker.py           # Win32 轮询线程（StepCaster 单例）
 │       ├── models.py            # Pydantic 响应模型
 │       └── api/routes/
 │           ├── tracker_routes.py
@@ -264,7 +264,7 @@ AppTrack/
 
 ## 数据存储
 
-数据库文件：`backend/data/apptrack.db`（SQLite，WAL 模式）
+数据库文件：`backend/data/StepCast.db`（SQLite，WAL 模式）
 
 ```sql
 CREATE TABLE sessions (
@@ -285,7 +285,7 @@ CREATE TABLE sessions (
 
 ## 与 AutoScribe 的关系
 
-AppTrack 与 AutoScribe 共享相同的设计理念：
+StepCast 与 AutoScribe 共享相同的设计理念：
 
 - **本地优先**：数据存储在本机，不依赖任何云服务
 - **技术栈一致**：Python FastAPI 后端 + React 前端
@@ -293,4 +293,4 @@ AppTrack 与 AutoScribe 共享相同的设计理念：
 - **多语言一致**：相同的 `useT()` hook + `LOCALES` 结构，支持中/英/德
 - **状态管理一致**：Zustand + localStorage 持久化模式
 
-两者的区别在于面向的数据来源：AutoScribe 追踪**浏览器操作**（通过 Chrome 扩展），AppTrack 追踪 **Windows 桌面应用**（通过 Win32 API）。
+两者的区别在于面向的数据来源：AutoScribe 追踪**浏览器操作**（通过 Chrome 扩展），StepCast 追踪 **Windows 桌面应用**（通过 Win32 API）。

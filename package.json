@@ -1,23 +1,23 @@
 {
-  "name": "apptrack",
+  "name": "StepCast",
   "version": "0.1.0",
-  "description": "AppTrack — CAD Operation Recording & Tutorial Video Generation",
-  "author": "AppTrack Team",
+  "description": "StepCast — CAD Operation Recording & Tutorial Video Generation",
+  "author": "StepCast Team",
   "license": "MIT",
   "main": "electron/main.js",
   "scripts": {
     "start": "npm run frontend:build && electron .",
     "start:norebuild": "electron .",
     "frontend:build": "cd frontend && npm install && npm run build",
-    "backend:bundle": "cd backend && pip install pyinstaller && pyinstaller apptrack_backend.spec --clean",
+    "backend:bundle": "cd backend && pip install pyinstaller && pyinstaller StepCast_backend.spec --clean",
     "pack": "npm run frontend:build && electron-builder --dir",
     "dist": "npm run frontend:build && electron-builder",
     "dist:win": "npm run frontend:build && electron-builder --win",
     "dist:full": "npm run frontend:build && npm run backend:bundle && electron-builder --win"
   },
   "build": {
-    "appId": "com.apptrack.desktop",
-    "productName": "AppTrack",
+    "appId": "com.StepCast.desktop",
+    "productName": "StepCast",
     "directories": {
       "output": "release"
     },
@@ -70,7 +70,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AppTrack"
+      "shortcutName": "StepCast"
     }
   },
   "devDependencies": {

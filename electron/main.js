@@ -83,7 +83,7 @@ function resolveBackendLaunch() {
   const backendDir   = getBackendDir()
 
   // Option 1: PyInstaller 打包的 exe
-  const pyiExe = path.join(backendDir, 'dist', 'apptrack_backend', 'apptrack_backend.exe')
+  const pyiExe = path.join(backendDir, 'dist', 'StepCast_backend', 'StepCast_backend.exe')
   if (fs.existsSync(pyiExe)) {
     return {
       cmd:  pyiExe,
@@ -113,7 +113,7 @@ function resolveBackendLaunch() {
     env:  {
       ...process.env,
       PYTHONPATH:             backendDir,
-      APPTRACK_FRONTEND_DIST: frontendDist,
+      StepCast_FRONTEND_DIST: frontendDist,
       PYTHONUNBUFFERED:       '1',
     },
   }
@@ -176,7 +176,7 @@ function createWindow(url) {
     height: 820,
     minWidth: 960,
     minHeight: 600,
-    title: 'AppTrack',
+    title: 'StepCast',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

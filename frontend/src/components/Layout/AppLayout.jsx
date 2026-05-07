@@ -10,7 +10,7 @@ export default function AppLayout() {
   return (
     <div style={s.shell}>
       <aside style={s.sidebar}>
-        <div style={s.brand}>AppTrack</div>
+        <div style={s.brand}>StepCast</div>
         <nav style={s.nav}>
           <SidebarLink to="/record"   >{t.nav_record}</SidebarLink>
           <SidebarLink to="/gallery"  >{t.nav_gallery}</SidebarLink>

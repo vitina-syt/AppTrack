@@ -2,9 +2,9 @@
 
 $ErrorActionPreference = "Stop"
 
-$ServiceName  = "AppTrack"
-$DisplayName  = "AppTrack Server"
-$Description  = "AppTrack CAD Recording and Tutorial Backend"
+$ServiceName  = "StepCast"
+$DisplayName  = "StepCast Server"
+$Description  = "StepCast CAD Recording and Tutorial Backend"
 
 $ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $ProjectRoot  = Split-Path -Parent $ScriptDir
@@ -39,7 +39,7 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 # ---------------------------------------------------------------------------
 
 $EnvVars = @(
-    "APPTRACK_FRONTEND_DIST=$FrontendDist",
+    "StepCast_FRONTEND_DIST=$FrontendDist",
     "PYTHONPATH=$BackendDir",
     "PYTHONUNBUFFERED=1"
 )
@@ -80,8 +80,8 @@ Write-Host "Installing service '$ServiceName'..."
 & nssm set         $ServiceName Description    $Description
 & nssm set         $ServiceName Start          SERVICE_AUTO_START
 
-& nssm set         $ServiceName AppStdout      (Join-Path $LogDir "apptrack.log")
-& nssm set         $ServiceName AppStderr      (Join-Path $LogDir "apptrack-error.log")
+& nssm set         $ServiceName AppStdout      (Join-Path $LogDir "StepCast.log")
+& nssm set         $ServiceName AppStderr      (Join-Path $LogDir "StepCast-error.log")
 & nssm set         $ServiceName AppRotateFiles 1
 & nssm set         $ServiceName AppRotateSeconds 86400
 & nssm set         $ServiceName AppRotateBytes  10485760
@@ -104,7 +104,7 @@ $status = & nssm status $ServiceName 2>&1
 Write-Host "Service status: $status"
 
 Write-Host ""
-Write-Host "Done. AppTrack is running at http://localhost:8001"
+Write-Host "Done. StepCast is running at http://localhost:8001"
 Write-Host "Gallery : http://localhost:8001/gallery"
 Write-Host "API docs: http://localhost:8001/docs"
 Write-Host "Logs    : $LogDir"

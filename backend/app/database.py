@@ -13,19 +13,19 @@ def _get_data_dir() -> Path:
     """
     Return a writable data directory.
 
-    - Frozen (PyInstaller exe): %APPDATA%\\AppTrack\\   (always user-writable)
+    - Frozen (PyInstaller exe): %APPDATA%\\StepCast\\   (always user-writable)
     - Development / uvicorn:    <project_root>/backend/data/
     """
     if getattr(sys, "frozen", False):
         # Running as packaged exe — write to user's AppData, never to Program Files
         appdata = os.environ.get("APPDATA") or os.path.expanduser("~")
-        return Path(appdata) / "AppTrack"
+        return Path(appdata) / "StepCast"
     # Development: relative to this file → backend/data/
     return Path(__file__).parent.parent / "data"
 
 
 DATA_DIR = _get_data_dir()
-DB_PATH  = DATA_DIR / "apptrack.db"
+DB_PATH  = DATA_DIR / "StepCast.db"
 
 _local = threading.local()
 

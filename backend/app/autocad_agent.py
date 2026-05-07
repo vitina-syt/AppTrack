@@ -400,7 +400,7 @@ from app.voice_capture import VoiceCapture
 from app.database import DATA_DIR
 import sys as _sys
 if getattr(_sys, "frozen", False):
-    SCREENSHOTS_BASE = Path("C:/document/AppTrack/autocad_screenshots")
+    SCREENSHOTS_BASE = Path("C:/document/StepCast/autocad_screenshots")
 else:
     SCREENSHOTS_BASE = DATA_DIR / "autocad_screenshots"
 
@@ -1154,7 +1154,16 @@ class AutoCADScribeAgent:
         # the MTA is stable before the COM monitor creates its STA apartment.
         if enable_voice:
             audio_dir = SCREENSHOTS_BASE / str(sid) / "audio"
-            self._voice = VoiceCapture(audio_dir=audio_dir)
+            # Optimize for longer, more coherent speech segments:
+            # - silence_thresh: 提高到0.010，减少噪音误触发
+            # - silence_secs: 延长到2.5秒，允许自然停顿
+            # - max_segment_secs: 60秒可容纳更长叙述
+            self._voice = VoiceCapture(
+                silence_thresh=0.010,      # 从0.004提高，避免噪音割裂
+                silence_secs=2.5,          # 从1.5延长，保持句子连贯
+                max_segment_secs=60.0,     # 从30增加，支持长叙述
+                audio_dir=audio_dir
+            )
             self._voice.start(self._on_voice_segment)
             self._voice.wait_ready(timeout=5.0)   # wait for WASAPI/MTA to stabilise
             logger.info("Voice capture ready — starting COM monitor")

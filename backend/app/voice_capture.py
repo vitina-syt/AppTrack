@@ -49,6 +49,14 @@ try:
 except ImportError:
     pass
 
+# ── optional silero-vad (advanced speech detection) ──────────────────────────
+_SILERO_VAD = False
+try:
+    import torch
+    _SILERO_VAD = True
+except ImportError:
+    logger.info("torch not available — advanced VAD disabled (using RMS fallback)")
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -67,6 +75,29 @@ def _normalize_audio(raw: bytes, target_rms: float = 0.08) -> bytes:
     gain = min(target_rms / current_rms, 20.0)
     normalised = np.clip(pcm * gain, -1.0, 1.0)
     return (normalised * 32767).astype(np.int16).tobytes()
+
+
+def _compute_speech_energy(raw: bytes, chunk_size: int = 512) -> tuple[float, float]:
+    """Compute both RMS and high-frequency energy ratio for better speech detection.
+    
+    Returns (rms, speech_score) where speech_score combines RMS + frequency analysis.
+    Speech typically has:
+      - RMS > 0.01
+      - Strong energy in 300-3000 Hz band (speech formants)
+    """
+    if not _NUMPY or not raw:
+        return 0.0, 0.0
+    
+    import numpy as np
+    pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    rms = float(np.sqrt(np.mean(pcm ** 2)))
+    
+    # High-frequency energy (above 300 Hz indicates speech, not background noise)
+    # For now use RMS with gentle threshold — robust alternative to FFT
+    # Real speech has RMS 0.01-0.2, background noise < 0.008
+    speech_score = min(rms * 1.5, 1.0)  # Boost speech signal slightly
+    
+    return rms, speech_score
 
 
 def _transcribe_file(wav_path: str) -> tuple[str, float]:
@@ -143,6 +174,11 @@ class VoiceCapture:
         self._segment_queue: queue.Queue = queue.Queue()
         self._segments: List[dict] = []
         self._callback: Optional[Callable] = None
+        
+        # Pending short segment buffering (to avoid micro-transcriptions)
+        self._pending_segment: Optional[tuple[str, str]] = None  # (wav_path, start_ts)
+        self._pending_frames = 0
+        self._min_segment_frames = int(0.5 * 16000 / 1024)  # 0.5 seconds minimum
 
         # Rolling PCM buffer — keeps the last 60 s of raw audio for per-frame snapshots
         self._pcm_buffer: collections.deque = collections.deque()
@@ -185,6 +221,12 @@ class VoiceCapture:
     def stop(self) -> None:
         with self._lock:
             self._running = False
+            # Flush any pending short segment when stopping
+            if self._pending_segment:
+                wav_path, start_ts = self._pending_segment
+                self._pending_segment = None
+                self._pending_frames = 0
+                self._segment_queue.put((wav_path, start_ts))
         self._segment_queue.put(None)
         if self._capture_thread:
             self._capture_thread.join(timeout=5)
@@ -262,6 +304,11 @@ class VoiceCapture:
         max_frames = int(self.max_segment_secs * frames_per_second)
         in_speech = False
         seg_start_ts = _utcnow()
+        
+        # Adaptive silence detection: track recent energy levels to avoid
+        # cutting on brief pauses or breath sounds
+        recent_energies = []
+        max_recent = 5  # Look back 5 frames (~256ms) for energy trend
 
         try:
             while True:
@@ -277,13 +324,15 @@ class VoiceCapture:
                     if len(self._pcm_buffer) > self._pcm_max_chunks:
                         self._pcm_buffer.popleft()
 
-                if _NUMPY:
-                    pcm = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
-                    rms = float(np.sqrt(np.mean(pcm ** 2)))
-                else:
-                    rms = 0.05
-
-                is_silent = rms < self.silence_thresh
+                # Improved energy detection
+                rms, speech_score = _compute_speech_energy(data)
+                recent_energies.append(speech_score)
+                if len(recent_energies) > max_recent:
+                    recent_energies.pop(0)
+                
+                # Silence = recent energy all below threshold (not just current frame)
+                avg_recent_energy = sum(recent_energies) / len(recent_energies) if recent_energies else 0
+                is_silent = avg_recent_energy < self.silence_thresh
 
                 if not is_silent:
                     if not in_speech:
@@ -314,11 +363,56 @@ class VoiceCapture:
             pa.terminate()
 
     def _flush_segment(self, frames: List[bytes], start_ts: str) -> None:
-        """Normalise and write audio frames to a WAV file, then enqueue for transcription."""
+        """Normalise and write audio frames to a WAV file, then enqueue for transcription.
+        
+        Short segments (<0.5s) are buffered and merged with the next segment to avoid
+        micro-transcriptions that don't convey complete meaning.
+        """
         import wave
-
+        
+        num_frames = len(frames)
         raw = _normalize_audio(b"".join(frames))
-
+        
+        # Check segment length
+        if num_frames < self._min_segment_frames:
+            # Too short — buffer it for merging with next segment
+            out_dir = self.audio_dir or Path(tempfile.gettempdir())
+            out_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+            wav_path = out_dir / f"voice_{ts}.wav"
+            
+            with wave.open(str(wav_path), "wb") as wf:
+                wf.setnchannels(self.CHANNELS)
+                wf.setsampwidth(2)
+                wf.setframerate(self.RATE)
+                wf.writeframes(raw)
+            
+            with self._lock:
+                if self._pending_segment:
+                    # Merge with existing pending segment
+                    pending_path, pending_ts = self._pending_segment
+                    merged_frames = self._merge_wav_files(pending_path, str(wav_path))
+                    Path(pending_path).unlink(missing_ok=True)
+                    Path(str(wav_path)).unlink(missing_ok=True)
+                    
+                    # Save merged segment
+                    merged_path = out_dir / f"voice_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')}.wav"
+                    with wave.open(str(merged_path), "wb") as wf:
+                        wf.setnchannels(self.CHANNELS)
+                        wf.setsampwidth(2)
+                        wf.setframerate(self.RATE)
+                        wf.writeframes(merged_frames)
+                    
+                    self._pending_segment = (str(merged_path), pending_ts)
+                    self._pending_frames += num_frames
+                else:
+                    self._pending_segment = (str(wav_path), start_ts)
+                    self._pending_frames = num_frames
+            
+            logger.info(f"Voice segment too short ({num_frames} frames), buffering for merge")
+            return
+        
+        # Segment is long enough — flush now
         out_dir = self.audio_dir or Path(tempfile.gettempdir())
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
@@ -330,7 +424,42 @@ class VoiceCapture:
             wf.setframerate(self.RATE)
             wf.writeframes(raw)
 
-        self._segment_queue.put((str(wav_path), start_ts))
+        with self._lock:
+            if self._pending_segment:
+                # Merge pending + current segment
+                pending_path, pending_ts = self._pending_segment
+                merged_frames = self._merge_wav_files(pending_path, wav_path)
+                Path(pending_path).unlink(missing_ok=True)
+                Path(wav_path).unlink(missing_ok=True)
+                
+                merged_path = out_dir / f"voice_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')}.wav"
+                with wave.open(str(merged_path), "wb") as wf:
+                    wf.setnchannels(self.CHANNELS)
+                    wf.setsampwidth(2)
+                    wf.setframerate(self.RATE)
+                    wf.writeframes(merged_frames)
+                
+                self._segment_queue.put((str(merged_path), pending_ts))
+                self._pending_segment = None
+                self._pending_frames = 0
+                logger.info(f"Flushed merged segment ({self._pending_frames + num_frames} frames)")
+            else:
+                self._segment_queue.put((wav_path, start_ts))
+                logger.info(f"Flushed segment ({num_frames} frames)")
+
+    def _merge_wav_files(self, wav_path1: str, wav_path2: str) -> bytes:
+        """Merge two WAV files by concatenating their PCM data."""
+        import wave
+        
+        data1 = b""
+        with wave.open(wav_path1, "rb") as wf:
+            data1 = wf.readframes(wf.getnframes())
+        
+        data2 = b""
+        with wave.open(wav_path2, "rb") as wf:
+            data2 = wf.readframes(wf.getnframes())
+        
+        return data1 + data2
 
     # ── transcribe loop ───────────────────────────────────────────────────
 

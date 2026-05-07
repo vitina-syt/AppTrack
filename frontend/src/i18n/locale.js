@@ -14,7 +14,7 @@ export const LOCALES = {
     theme_light: '浅色',
 
     // HomePage
-    home_title: 'AppTrack',
+    home_title: 'StepCast',
     home_subtitle: '记录 Windows 桌面软件的使用时长',
     home_status_running: '追踪中',
     home_status_stopped: '已停止',
@@ -344,7 +344,7 @@ export const LOCALES = {
     theme_dark: 'Dark',
     theme_light: 'Light',
 
-    home_title: 'AppTrack',
+    home_title: 'StepCast',
     home_subtitle: 'Track Windows desktop application usage',
     home_status_running: 'Tracking',
     home_status_stopped: 'Stopped',
@@ -671,7 +671,7 @@ export const LOCALES = {
     theme_dark: 'Dunkel',
     theme_light: 'Hell',
 
-    home_title: 'AppTrack',
+    home_title: 'StepCast',
     home_subtitle: 'Nutzungszeit von Windows-Desktop-Anwendungen erfassen',
     home_status_running: 'Aktiv',
     home_status_stopped: 'Gestoppt',

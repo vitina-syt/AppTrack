@@ -1,10 +1,10 @@
 """
-AppTrack backend entry point.
+StepCast backend entry point.
 FastAPI + CORS.
 
 In Electron mode the built React frontend is served as static files so the
 whole app is accessible at http://127.0.0.1:PORT.  The frontend dist path is
-injected via the APPTRACK_FRONTEND_DIST environment variable (set by
+injected via the StepCast_FRONTEND_DIST environment variable (set by
 electron/main.js).  When that env var is absent the server falls back to
 looking for frontend/dist relative to the project root, which covers normal
 development via `uvicorn app.main:app --reload`.
@@ -25,7 +25,7 @@ def _load_dotenv():
     if getattr(sys, "frozen", False):
         # PyInstaller: __file__ is inside _MEIPASS (temp dir), not the install dir.
         # Electron sets cwd = resources/backend/ when launching the exe, so .env is there.
-        # Fallback: exe lives at resources/backend/dist/apptrack_backend/apptrack_backend.exe,
+        # Fallback: exe lives at resources/backend/dist/StepCast_backend/StepCast_backend.exe,
         # so 3 levels up also reaches resources/backend/.
         candidates = [
             Path(os.getcwd()) / ".env",
@@ -59,12 +59,12 @@ _load_dotenv()
 
 # Write logs to a file so they are visible in packaged Electron builds
 # (where there is no terminal to see Python stdout).
-# Log file: %LOCALAPPDATA%\AppTrack\apptrack.log  (Windows)
+# Log file: %LOCALAPPDATA%\StepCast\StepCast.log  (Windows)
 def _setup_file_logging():
     try:
-        log_dir = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "AppTrack"
+        log_dir = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))) / "StepCast"
         log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "apptrack.log"
+        log_file = log_dir / "StepCast.log"
         file_handler = logging.FileHandler(str(log_file), encoding="utf-8")
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(logging.Formatter(
@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AppTrack API",
+    title="StepCast API",
     description="CAD 操作录屏与教学视频生成",
     version="0.1.0",
     lifespan=lifespan,
@@ -139,8 +139,8 @@ app.include_router(sync_routes.router)
 
 # ── Frontend static file serving (SPA) ───────────────────────────────────────
 # Resolve the frontend dist directory.
-# Priority: APPTRACK_FRONTEND_DIST env var → project-relative fallback.
-_env_dist = os.environ.get("APPTRACK_FRONTEND_DIST", "")
+# Priority: StepCast_FRONTEND_DIST env var → project-relative fallback.
+_env_dist = os.environ.get("StepCast_FRONTEND_DIST", "")
 if _env_dist:
     _FRONTEND_DIST = Path(_env_dist)
 else:
