@@ -151,6 +151,9 @@ a = Analysis(
         'idna',
         # ── Pillow — collect all submodules so ImageDraw/ImageFont/etc. all work ─
         *_collect_submodules('PIL'),
+        # ── App package — uvicorn loads "app.main:app" by string, so PyInstaller's
+        # static import analysis misses it. Collect every submodule explicitly.
+        *_collect_submodules('app'),
         # ── Windows recording libs ────────────────────────────────────────
         'mss',
         'pynput',
